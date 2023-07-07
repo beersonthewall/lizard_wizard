@@ -5,7 +5,8 @@ pub struct Memory {
 impl std::default::Default for Memory {
     fn default() -> Self {
 	Self {
-	    bytes: Vec::new(),
+	    // allocate 65K addressable bytes
+	    bytes: [0;u16::MAX as usize].to_vec(),
 	}
     }
 }
