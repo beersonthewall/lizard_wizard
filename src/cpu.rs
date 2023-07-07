@@ -126,12 +126,20 @@ impl Cpu {
 	    0b101 => self.memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16,
 
 	    // absolute, Y
-	    // Example: LDA $32F0,Y
-	    0b110 => self.reg_y as u16 + self.memory.read(post_inc!(self.reg_pc)) as u16,
+	    // Example: LDA $2000,Y where Y = $92 => loads value at $2092 to acc
+	    0b110 => {
+		let result = self.reg_y as u16 + self.memory.read_u16(self.reg_pc);
+		self.reg_pc += 2;
+		result
+	    },
 
 	    // absolute, X
 	    // Example: LDA $32F0,X
-	    0b111 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
+	    0b111 => {
+		let result = self.memory.read_u16(self.reg_pc) + self.reg_x as u16;
+		self.reg_pc += 2;
+		result
+	    },
 
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
 	};
