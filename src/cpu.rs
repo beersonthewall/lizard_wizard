@@ -101,6 +101,7 @@ impl Cpu {
 	    0b001 => self.memory.read(post_inc!(self.reg_pc)) as u16,
 
 	    // #immediate
+	    // Example: LDA #20
 	    0b010 => post_inc!(self.reg_pc),
 
 	    // absolute
