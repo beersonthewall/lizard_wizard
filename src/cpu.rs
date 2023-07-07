@@ -92,7 +92,8 @@ impl Cpu {
 	    0b000 => {
 		let base = self.memory.read(post_inc!(self.reg_pc));
 		let idx = self.reg_x;
-		self.memory.read_u16(base as u16 + idx as u16)
+		// This should have wrapping add, I think...
+		self.memory.read_u16(base.wrapping_add(idx) as u16)
 	    },
 
 	    // zero page
