@@ -32,6 +32,18 @@ impl std::default::Default for Cpu {
     }
 }
 
+/// Macro rule to implement post-increment for a mutable expression.
+macro_rules! post_inc {
+    ($i:expr) => {
+	{
+	    let expr = &mut $i;
+	    let old = *expr;
+	    *expr += 1;
+	    old
+	}
+    };
+}
+
 impl Cpu {
     const CARRY: u8 = 1;
     const ZERO: u8 = 1 << 2;
@@ -47,8 +59,7 @@ impl Cpu {
 	// bits: aaa & cc determine the opcode
 	// bits: bbb determine the addressing mode
 	// ref: https://llx.com/Neil/a2/opcodes.html
-	let instruction = self.memory.read(self.reg_pc);
-	self.reg_pc += 1;
+	let instruction = self.memory.read(post_inc!(self.reg_pc));
 	self.cycles += 1;
 	let cc = instruction & 0b11;
 
@@ -65,41 +76,39 @@ impl Cpu {
 
     /// 'group one' instructions are:
     /// ORA, AND, EOR, ADC, STA, LDA, CMP, SBC
-    ///
-    /// They have the following addessing modes:
-    /// - (zero page), X
-    /// - zero page
-    /// - #immediate
-    /// - absolute
-    /// - (zero page), Y
-    /// - zero page, X
-    /// - absolute, Y
-    /// - absolute, X
     fn execute_group_one(&mut self, instruction: u8) -> Result<(), EmuErr> {
 	let aaa = (instruction >> 5) & 0b111;
 	let addressing_mode = (instruction >> 2) & 0b111;
 	// FIXME: don't think this is corret or even how this should be done
 	let location = match addressing_mode {
 	    // (zero page), X
-	    0b000 => (self.reg_x + self.memory.read(self.reg_pc)) as u16,
+	    0b000 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
 
 	    // zero page
-	    0b001 => self.memory.read(self.reg_pc) as u16,
+	    0b001 => self.memory.read(post_inc!(self.reg_pc)) as u16,
 
 	    // #immediate
-	    0b010 => self.memory.read(self.reg_pc) as u16,
+	    0b010 => self.memory.read(post_inc!(self.reg_pc)) as u16,
 
 	    // absolute
-	    0b011 => self.memory.read_u16(self.reg_pc),
+	    0b011 => {
+		let val = self.memory.read_u16(self.reg_pc);
+		self.reg_pc += 2;
+		val
+	    },
 
 	    // (zero page), Y
-	    0b100 => (self.reg_y + self.memory.read(self.reg_pc)) as u16,
+	    0b100 => (self.reg_y + self.memory.read(post_inc!(self.reg_pc))) as u16,
+
 	    // zero page, X
-	    0b101 => (self.reg_x + self.memory.read(self.reg_pc)) as u16,
+	    0b101 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
 
 	    // absolute, Y
-	    0b110 => (self.reg_y + self.memory.read(self.reg_pc)) as u16,
-	    0b111 => (self.reg_x + self.memory.read(self.reg_pc)) as u16,
+	    0b110 => (self.reg_y + self.memory.read(post_inc!(self.reg_pc))) as u16,
+
+	    // absolute, X
+	    0b111 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
+
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
 	};
 	match aaa {
