@@ -81,32 +81,46 @@ impl Cpu {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	// FIXME: don't think this is corret or even how this should be done
 	let location = match addressing_mode {
-	    // (zero page), X
-	    0b000 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
+	    // indexed indirect
+	    // (zero page, X)
+	    0b000 => {
+		let base = self.memory.read(post_inc!(self.reg_pc));
+		let idx = self.reg_x;
+		self.memory.read_u16(base as u16 + idx as u16)
+	    },
 
 	    // zero page
+	    // Example: LDA $20
 	    0b001 => self.memory.read(post_inc!(self.reg_pc)) as u16,
 
 	    // #immediate
 	    0b010 => post_inc!(self.reg_pc),
 
 	    // absolute
+	    // Example: LDA $32FF
 	    0b011 => {
 		let val = self.memory.read_u16(self.reg_pc);
 		self.reg_pc += 2;
 		val
 	    },
 
+	    // indirect indexed
 	    // (zero page), Y
-	    0b100 => (self.reg_y + self.memory.read(post_inc!(self.reg_pc))) as u16,
+	    0b100 => {
+		let addr = self.memory.read(post_inc!(self.reg_pc));
+		addr as u16 + self.reg_y as u16
+	    },
 
 	    // zero page, X
+	    // Example: LDA $20,X
 	    0b101 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
 
 	    // absolute, Y
-	    0b110 => (self.reg_y + self.memory.read(post_inc!(self.reg_pc))) as u16,
+	    // Example: LDA $32F0,Y
+	    0b110 => self.reg_y as u16 + self.memory.read(post_inc!(self.reg_pc)) as u16,
 
 	    // absolute, X
+	    // Example: LDA $32F0,X
 	    0b111 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
 
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
