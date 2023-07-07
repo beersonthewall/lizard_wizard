@@ -120,8 +120,10 @@ impl Cpu {
 	    },
 
 	    // zero page, X
+	    // Note: If we have LDA $80,X with X = $FF then memory location will be
+	    // $7F and NOT $017F.
 	    // Example: LDA $20,X
-	    0b101 => (self.reg_x + self.memory.read(post_inc!(self.reg_pc))) as u16,
+	    0b101 => self.memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16,
 
 	    // absolute, Y
 	    // Example: LDA $32F0,Y
