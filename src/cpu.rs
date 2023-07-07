@@ -45,9 +45,15 @@ macro_rules! post_inc {
 }
 
 impl Cpu {
-    const CARRY: u8 = 1;
-    const ZERO: u8 = 1 << 2;
 
+    // status register masks
+    const CARRY: u8 = 1;
+    const ZERO: u8 = 1 << 1;
+    const _INTERRUPT_DISABLE: u8 = 1 << 2;
+    const _BREAK_CMD: u8 = 1 << 4;
+    const _OVERFLOW: u8 = 1 << 6;
+    const _NEGATIVE: u8 = 1 << 7;
+    
     pub fn _reset(&mut self) {
 	// TODO: Implement
     }
