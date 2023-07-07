@@ -88,13 +88,8 @@ impl Cpu {
 	// FIXME: don't think this is corret or even how this should be done
 	let location = match addressing_mode {
 	    // indexed indirect
-	    // (zero page, X)
-	    0b000 => {
-		let base = self.memory.read(post_inc!(self.reg_pc));
-		let idx = self.reg_x;
-		// This should have wrapping add, I think...
-		self.memory.read_u16(base.wrapping_add(idx) as u16)
-	    },
+	    // Example: LDA ($20, X)
+	    0b000 => self.indexed_indirect(),
 
 	    // zero page
 	    // Example: LDA $20
@@ -106,43 +101,26 @@ impl Cpu {
 
 	    // absolute
 	    // Example: LDA $32FF
-	    0b011 => {
-		let val = self.memory.read_u16(self.reg_pc);
-		self.reg_pc += 2;
-		val
-	    },
+	    0b011 => self.absolute(),
 
 	    // indirect indexed
 	    // (zero page), Y
-	    0b100 => {
-		let addr = self.memory.read(post_inc!(self.reg_pc));
-		addr as u16 + self.reg_y as u16
-	    },
+	    0b100 => self.indirect_indexed(),
 
 	    // zero page, X
-	    // Note: If we have LDA $80,X with X = $FF then memory location will be
-	    // $7F and NOT $017F.
-	    // Example: LDA $20,X
-	    0b101 => self.memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16,
+	    0b101 => self.zero_page_x(),
 
 	    // absolute, Y
 	    // Example: LDA $2000,Y where Y = $92 => loads value at $2092 to acc
-	    0b110 => {
-		let result = self.reg_y as u16 + self.memory.read_u16(self.reg_pc);
-		self.reg_pc += 2;
-		result
-	    },
+	    0b110 => self.absolute_y(),
 
 	    // absolute, X
 	    // Example: LDA $32F0,X
-	    0b111 => {
-		let result = self.memory.read_u16(self.reg_pc) + self.reg_x as u16;
-		self.reg_pc += 2;
-		result
-	    },
+	    0b111 => self.absolute_x(),
 
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
 	};
+
 	match aaa {
 	    // ORA
 	    0b000 => self.reg_a |= self.memory.read(location),
@@ -200,6 +178,50 @@ impl Cpu {
 	Ok(())
     }
 
+    /* Addressing mode utilities */
+
+    /// indexed indirect addressing mode resolution
+    fn indexed_indirect(&mut self) -> u16 {
+	let base = self.memory.read(post_inc!(self.reg_pc));
+	self.memory.read_u16(base.wrapping_add(self.reg_x) as u16)
+    }
+
+    /// indirect indexed addressing mode resolution
+    fn indirect_indexed(&mut self) -> u16 {
+	let addr = self.memory.read(post_inc!(self.reg_pc));
+	addr as u16 + self.reg_y as u16
+    }
+
+    /// absolute addressing mode resolution
+    fn absolute(&mut self) -> u16 {
+	let val = self.memory.read_u16(self.reg_pc);
+	self.reg_pc += 2;
+	val
+    }
+
+    /// indexed (by X) absolute addressing
+    fn absolute_x(&mut self) -> u16 {
+	let result = self.memory.read_u16(self.reg_pc) + self.reg_x as u16;
+	self.reg_pc += 2;
+	result
+    }
+
+    /// indexed (by Y) absolute addressing
+    fn absolute_y(&mut self) -> u16 {
+	let result = self.reg_y as u16 + self.memory.read_u16(self.reg_pc);
+	self.reg_pc += 2;
+	result
+    }
+
+    /// indexed (by X) zero page addressing mode resolution
+    fn zero_page_x(&mut self) -> u16 {
+	// Note: If we have LDA $80,X with X = $FF then memory location will be
+	// $7F and NOT $017F.
+	// Example: LDA $20,X
+	self.memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16
+    }
+
+    /// Run the CPU
     pub fn run(&mut self) -> Result<(), EmuErr> {
 	loop {
 	    self.step()?;
