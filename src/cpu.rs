@@ -4,7 +4,7 @@ use super::memory::Memory;
 pub struct Cpu {
     // Registers
     reg_pc: u16,
-    _reg_sp: u8,
+    reg_sp: u8,
     reg_x: u8,
     reg_y: u8,
     reg_a: u8,
@@ -19,7 +19,7 @@ impl std::default::Default for Cpu {
     fn default() -> Self {
 	Self {
 	    reg_pc: 0,
-	    _reg_sp: 0,
+	    reg_sp: 0,
 	    reg_x: 0,
 	    reg_y: 0,
 	    reg_a: 0,
@@ -61,6 +61,10 @@ impl Cpu {
 	self.cycles += 1;
 	let cc = instruction & 0b11;
 
+	if self.maybe_single_byte(instruction)? {
+	    return Ok(())
+	}
+
 	match cc {
 	    // group one instructions
 	    0b01 => self.execute_group_one(instruction),
@@ -70,6 +74,123 @@ impl Cpu {
 	    0b00 => self.execute_group_three(instruction),
 	    _ => Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
 	}
+    }
+
+    /// pushes a value onto the stack
+    fn push(&mut self, val: u8) {
+	self.memory.write(0x100 | self.reg_sp as u16, val);
+	self.reg_sp -= 1;
+    }
+
+    /// pulls a value off the top of the stack
+    fn pull(&mut self) -> u8 {
+	let val = self.memory.read(0x100 | self.reg_sp as u16);
+	self.reg_sp += 1;
+	val
+    }
+
+    /// Implied addressing mode instructions. May not match.
+    fn maybe_single_byte(&mut self, instruction: u8) -> Result<bool, EmuErr> {
+	match instruction {
+	    // PHP
+	    0x08 => self.push(self.reg_s),
+
+	    // PLP
+	    0x28 => self.reg_s = self.pull(),
+
+	    // PHA
+	    0x48 => self.push(self.reg_a),
+
+	    // PLA
+	    0x68 => self.reg_a = self.pull(),
+
+	    // DEY
+	    0x88 => {
+		self.reg_y -= 1;
+		self.set_zn(self.reg_y);
+	    },
+
+	    // TAY
+	    0xA8 => {
+		self.reg_y = self.reg_a;
+		self.set_zn(self.reg_y);
+	    },
+
+	    // INY
+	    0xC8 => {
+		self.reg_y += 1;
+		self.set_zn(self.reg_y);
+	    },
+
+	    // INX
+	    0xE8 => {
+		self.reg_x += 1;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // CLC
+	    0x18 => self.set_c(false), // clears the carry flag
+
+	    // SEC
+	    0x38 => self.set_c(true),
+
+	    // CLI
+	    0x58 => self.set_i(false), // clear interrupt disable flag
+
+	    // SEI
+	    0x78 => self.set_i(true),
+
+	    // TYA
+	    0x98 => {
+		self.reg_a = self.reg_y;
+		self.set_zn(self.reg_a);
+	    },
+
+	    // CLV
+	    0xB8 => self.set_v(false), // clears overflow flag
+
+	    // CLD
+	    0xD8 => {}, // decimal flag is disabled on NES
+
+	    // SED
+	    0xF8 => {}, // decimal flag is disabled on NES
+
+	    // TXA
+	    0x8A => {
+		self.reg_a = self.reg_x;
+		self.set_zn(self.reg_a);
+	    },
+
+	    // TXS
+	    0x9A => self.reg_sp = self.reg_x,
+
+	    // TAX
+	    0xAA => {
+		self.reg_x = self.reg_a;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // TSX
+	    0xBA => {
+		self.reg_x = self.reg_sp;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // DEX
+	    0xCA => {
+		self.reg_x -= 1;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // NOP
+	    0xEA => {
+		// be lazy :)
+	    },
+
+	    // Didn't find an instruction, let caller know.
+	    _ => return Ok(false),
+	}
+	Ok(true)
     }
 
     /// 'group one' instructions are:
@@ -412,7 +533,7 @@ impl Cpu {
     // status register masks
     const CARRY: u8 = 1;
     const ZERO: u8 = 1 << 1;
-    const _INTERRUPT_DISABLE: u8 = 1 << 2;
+    const INTERRUPT_DISABLE: u8 = 1 << 2;
     const _BREAK_CMD: u8 = 1 << 4;
     const OVERFLOW: u8 = 1 << 6;
     const NEGATIVE: u8 = 1 << 7;
@@ -471,6 +592,14 @@ impl Cpu {
 	}
     }
 
+    fn set_i(&mut self, d: bool) {
+	if d {
+	    self.reg_s |= Cpu::INTERRUPT_DISABLE;
+	} else {
+	    self.reg_s &= !Cpu::INTERRUPT_DISABLE;
+	}
+    }
+
     fn compare(&mut self, fst: u8, snd: u8) {
 	self.set_zn(fst - snd);
 	self.set_c(fst >= snd);
@@ -482,5 +611,4 @@ impl Cpu {
 	    self.step()?;
 	}
     }
-
 }
