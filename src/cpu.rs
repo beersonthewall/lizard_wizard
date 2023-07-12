@@ -75,7 +75,6 @@ impl Cpu {
     /// 'group one' instructions are:
     /// ORA, AND, EOR, ADC, STA, LDA, CMP, SBC
     fn execute_group_one(&mut self, instruction: u8) -> Result<(), EmuErr> {
-	let aaa = (instruction >> 5) & 0b111;
 	let addressing_mode = (instruction >> 2) & 0b111;
 	// FIXME: don't think this is corret or even how this should be done
 	let location = match addressing_mode {
@@ -113,13 +112,23 @@ impl Cpu {
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
 	};
 
+	let aaa = (instruction >> 5) & 0b111;
 	match aaa {
 	    // ORA
-	    0b000 => self.reg_a |= self.memory.read(location),
+	    0b000 => {
+		self.reg_a |= self.memory.read(location);
+		self.set_zn(self.reg_a);
+	    },
 	    // AND
-	    0b001 => self.reg_a |= self.memory.read(location),
+	    0b001 => {
+		self.reg_a |= self.memory.read(location);
+		self.set_zn(self.reg_a);
+	    },
 	    // EOR
-	    0b010 => self.reg_a ^= self.memory.read(location),
+	    0b010 => {
+		self.reg_a ^= self.memory.read(location);
+		self.set_zn(self.reg_a);
+	    },
 	    // ADC
 	    0b011 => {
 		let carry = self.reg_s & 1;
@@ -127,24 +136,28 @@ impl Cpu {
 		let (result, o2) = self.reg_a.overflowing_add(intermediate);
 		// Overflow
 		if o1 || o2 {
-		    self.reg_s |= 1;
+		    self.reg_s |= Cpu::CARRY;
 		}
 		self.reg_a = result;
+		self.set_zn(self.reg_a);
 	    },
 	    // STA
 	    0b100 => self.memory.write(location, self.reg_a),
 	    // LDA
-	    0b101 => self.reg_a = self.memory.read(location),
+	    0b101 => {
+		self.reg_a = self.memory.read(location);
+		self.set_zn(self.reg_a);
+	    },
 	    // CMP
 	    0b110 => {
-		let other = self.memory.read(location);
-		if self.reg_a >= other {
-		    // set carry
+		let m = self.memory.read(location);
+		// TODO: should this be proper signed subtraction?
+		let diff = self.reg_a - m;
+		self.set_zn(diff);
+		if self.reg_a >= m {
 		    self.reg_s |= Cpu::CARRY;
-		}
-		if self.reg_a == other {
-		    // set zero
-		    self.reg_s |= Cpu::ZERO;
+		} else {
+		    self.reg_s &= !Cpu::CARRY;
 		}
 	    },
 	    // SBC
