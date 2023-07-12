@@ -198,12 +198,12 @@ impl Cpu {
 	    // Arithmetic left shift (ASL)
 	    0b000 => {
 		if is_accumulator {
-		    self.set_carry((self.reg_a >> 7) & Cpu::CARRY > 0);
+		    self.set_c((self.reg_a >> 7) & Cpu::CARRY > 0);
 		    self.reg_a <<= 1;
 		    self.set_zn(self.reg_a);
 		} else {
 		    let m = self.memory.read(location);
-		    self.set_carry((m >> 7) & Cpu::CARRY > 0);
+		    self.set_c((m >> 7) & Cpu::CARRY > 0);
 		    let m = m << 1;
 		    self.memory.write(location, m);
 		    self.set_zn(m);
@@ -212,14 +212,14 @@ impl Cpu {
 
 	    // (ROL)
 	    0b001 => {
-		let carry = self.carry();
+		let carry = self.c();
 		if is_accumulator {
-		    self.set_carry((self.reg_a >> 7) & Cpu::CARRY > 0);
+		    self.set_c((self.reg_a >> 7) & Cpu::CARRY > 0);
 		    self.reg_a = (self.reg_a >> 1) | (carry << 7);
 		    self.set_zn(self.reg_a);
 		} else {
 		    let m = self.memory.read(location);
-		    self.set_carry((m >> 7) & Cpu::CARRY > 0);
+		    self.set_c((m >> 7) & Cpu::CARRY > 0);
 		    let m = (m >> 1)| (carry << 7);
 		    self.memory.write(location, m);
 		    self.set_zn(m);
@@ -229,12 +229,12 @@ impl Cpu {
 	    // (LSR)
 	    0b010 => {
 		if is_accumulator {
-		    self.set_carry(self.reg_a & Cpu::CARRY > 0);
+		    self.set_c(self.reg_a & Cpu::CARRY > 0);
 		    self.reg_a >>= 1;
 		    self.set_zn(self.reg_a);
 		} else {
 		    let m = self.memory.read(location);
-		    self.set_carry(m & Cpu::CARRY > 0);
+		    self.set_c(m & Cpu::CARRY > 0);
 		    let m = m >> 1;
 		    self.memory.write(location, m);
 		    self.set_zn(m);
@@ -349,7 +349,7 @@ impl Cpu {
     const _OVERFLOW: u8 = 1 << 6;
     const NEGATIVE: u8 = 1 << 7;
 
-    fn carry(&self) -> u8 {
+    fn c(&self) -> u8 {
 	self.reg_s & Cpu::CARRY
     }
 
