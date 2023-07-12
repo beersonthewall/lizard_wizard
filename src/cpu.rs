@@ -45,14 +45,6 @@ macro_rules! post_inc {
 }
 
 impl Cpu {
-
-    // status register masks
-    const CARRY: u8 = 1;
-    const ZERO: u8 = 1 << 1;
-    const _INTERRUPT_DISABLE: u8 = 1 << 2;
-    const _BREAK_CMD: u8 = 1 << 4;
-    const _OVERFLOW: u8 = 1 << 6;
-    const _NEGATIVE: u8 = 1 << 7;
     
     pub fn _reset(&mut self) {
 	// TODO: Implement
@@ -219,6 +211,43 @@ impl Cpu {
 	// $7F and NOT $017F.
 	// Example: LDA $20,X
 	self.memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16
+    }
+
+    /* Utilities for manipulating the status register */
+    
+    // status register masks
+    const CARRY: u8 = 1;
+    const ZERO: u8 = 1 << 1;
+    const _INTERRUPT_DISABLE: u8 = 1 << 2;
+    const _BREAK_CMD: u8 = 1 << 4;
+    const _OVERFLOW: u8 = 1 << 6;
+    const NEGATIVE: u8 = 1 << 7;
+
+    fn carry(&self) -> u8 {
+	self.reg_s & Cpu::CARRY
+    }
+
+    fn set_carry(&mut self, c: bool) {
+	if c {
+	    self.reg_s |= Cpu::CARRY;
+	} else {
+	    self.reg_s &= !Cpu::CARRY;
+	}
+    }
+
+    fn set_zn(&mut self, val: u8) {
+	if val == 0 {
+	    self.reg_s |= Cpu::ZERO;
+	} else {
+	    self.reg_s &= !Cpu::ZERO;
+	}
+
+	let negative = ((val >> 7) & 1) > 0;
+	if negative {
+	    self.reg_s |= Cpu::NEGATIVE;
+	} else {
+	    self.reg_s &= !Cpu::NEGATIVE;
+	}
     }
 
     /// Run the CPU
