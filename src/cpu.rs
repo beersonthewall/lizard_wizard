@@ -84,7 +84,7 @@ impl Cpu {
 
 	    // zero page
 	    // Example: LDA $20
-	    0b001 => self.memory.read(post_inc!(self.reg_pc)) as u16,
+	    0b001 => self.zero_page(),
 
 	    // #immediate
 	    // Example: LDA #20
@@ -216,6 +216,11 @@ impl Cpu {
 	let result = self.reg_y as u16 + self.memory.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	result
+    }
+
+    /// zero page addressing mode resolution
+    fn zero_page(&mut self) -> u16 {
+	self.memory.read(post_inc!(self.reg_pc)) as u16
     }
 
     /// indexed (by X) zero page addressing mode resolution
