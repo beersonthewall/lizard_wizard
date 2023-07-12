@@ -175,7 +175,115 @@ impl Cpu {
 	Ok(())
     }
 
-    fn execute_group_two(&mut self, _instruction: u8) -> Result<(), EmuErr> {
+    /// group two instructions
+    /// ASL, ROL, LSR, ROR, STX, LDX, DEC, INC
+    fn execute_group_two(&mut self, instruction: u8) -> Result<(), EmuErr> {
+	let addressing_mode = (instruction >> 2) & 0b111;
+	let mut is_accumulator = false;
+	let location = match addressing_mode {
+	    0b000 => self.memory.read(post_inc!(self.reg_pc)) as u16,
+	    0b001 => self.zero_page(),
+	    0b010 => {
+		is_accumulator = true;
+		0
+	    },
+	    0b011 => self.absolute(),
+	    0b101 => self.zero_page_x(),
+	    0b111 => self.absolute_x(),
+	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
+	};
+
+	let aaa = (instruction >> 5) & 0b111;
+	match aaa {
+	    // Arithmetic left shift (ASL)
+	    0b000 => {
+		if is_accumulator {
+		    self.set_carry((self.reg_a >> 7) & Cpu::CARRY > 0);
+		    self.reg_a <<= 1;
+		    self.set_zn(self.reg_a);
+		} else {
+		    let m = self.memory.read(location);
+		    self.set_carry((m >> 7) & Cpu::CARRY > 0);
+		    let m = m << 1;
+		    self.memory.write(location, m);
+		    self.set_zn(m);
+		}
+	    },
+
+	    // (ROL)
+	    0b001 => {
+		let carry = self.carry();
+		if is_accumulator {
+		    self.set_carry((self.reg_a >> 7) & Cpu::CARRY > 0);
+		    self.reg_a = (self.reg_a >> 1) | (carry << 7);
+		    self.set_zn(self.reg_a);
+		} else {
+		    let m = self.memory.read(location);
+		    self.set_carry((m >> 7) & Cpu::CARRY > 0);
+		    let m = (m >> 1)| (carry << 7);
+		    self.memory.write(location, m);
+		    self.set_zn(m);
+		}
+	    },
+
+	    // (LSR)
+	    0b010 => {
+		if is_accumulator {
+		    self.set_carry(self.reg_a & Cpu::CARRY > 0);
+		    self.reg_a >>= 1;
+		    self.set_zn(self.reg_a);
+		} else {
+		    let m = self.memory.read(location);
+		    self.set_carry(m & Cpu::CARRY > 0);
+		    let m = m >> 1;
+		    self.memory.write(location, m);
+		    self.set_zn(m);
+		}
+	    },
+
+	    // ROR
+	    0b011 => {
+		if is_accumulator {
+		    let old_zero_bit: u8 = self.reg_a & 1;
+		    self.reg_a >>= 1;
+		    self.reg_a |= self.reg_s & (1 << 6);
+		    self.reg_s |= old_zero_bit;
+		    self.set_zn(self.reg_a);
+		} else {
+		    let mut m = self.memory.read(location);
+		    let old_zero_bit: u8 = m & 1;
+		    m >>= 1;
+		    m |= self.reg_s & (1 << 6);
+		    self.reg_s |= old_zero_bit;
+		    self.set_zn(m);
+		}
+	    },
+
+	    // STX
+	    0b100 => self.memory.write(location, self.reg_x),
+
+	    // LDX
+	    0b101 => {
+		self.reg_x = self.memory.read(location);
+		self.set_zn(self.reg_x);
+	    },
+
+	    // DEC
+	    0b110 => {
+		let result = self.memory.read(location).wrapping_sub(1);
+		self.reg_s |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
+		self.set_zn(result);
+	    },
+
+	    // INC
+	    0b111 => {
+		let result = self.memory.read(location).wrapping_add(1);
+		self.reg_s |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
+		self.set_zn(result);
+	    },
+
+	    _ => return Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
+	};
 	Ok(())
     }
 
