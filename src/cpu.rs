@@ -149,17 +149,7 @@ impl Cpu {
 		self.set_zn(self.reg_a);
 	    },
 	    // CMP
-	    0b110 => {
-		let m = self.memory.read(location);
-		// TODO: should this be proper signed subtraction?
-		let diff = self.reg_a - m;
-		self.set_zn(diff);
-		if self.reg_a >= m {
-		    self.reg_s |= Cpu::CARRY;
-		} else {
-		    self.reg_s &= !Cpu::CARRY;
-		}
-	    },
+	    0b110 => self.compare(self.reg_a, self.memory.read(location)),
 	    // SBC
 	    0b111 => {
 		let data = self.memory.read(location);
@@ -374,6 +364,11 @@ impl Cpu {
 	} else {
 	    self.reg_s &= !Cpu::NEGATIVE;
 	}
+    }
+
+    fn compare(&mut self, fst: u8, snd: u8) {
+	self.set_zn(fst - snd);
+	self.set_c(fst >= snd);
     }
 
     /// Run the CPU
