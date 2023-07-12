@@ -277,7 +277,85 @@ impl Cpu {
 	Ok(())
     }
 
-    fn execute_group_three(&mut self, _instruction: u8) -> Result<(), EmuErr> {
+    /// group three instructions
+    /// BIT, JMP, JMP (abs), STY, LDY, CPY, CPX
+    // aaabbbcc
+    fn execute_group_three(&mut self, instruction: u8) -> Result<(), EmuErr> {
+	let addressing_mode = (instruction >> 2) & 0b111;
+	let mut is_conditional_branch = false;
+	let location = match addressing_mode {
+	    0b000 => post_inc!(self.reg_pc),
+	    0b001 => self.zero_page(),
+	    0b011 => self.absolute(),
+	    0b101 => self.zero_page_x(),
+	    0b111 => self.absolute_x(),
+	    0b100 => {
+		is_conditional_branch = true;
+		0
+	    }
+	    _ => return Err(EmuErr::UnrecognizedAddressingMode(self.reg_pc)),
+	};
+
+	if is_conditional_branch {
+	    return self.execute_cond_branch(instruction);
+	}
+
+	let aaa: u8 = (instruction >> 5) & 0b111;
+	match aaa {
+	    // BIT
+	    0b001 => {
+		let m = self.memory.read(location);
+		self.set_v((m >> 6) & 1 > 0);
+		self.set_z(m & self.reg_a);
+		self.set_n(m);
+	    },
+
+	    // JMP
+	    0b010 => {
+		self.reg_pc = location;
+	    },
+
+	    // JMP (abs)
+	    0b011 => {},
+
+	    // STY
+	    0b100 => self.memory.write(location, self.reg_y),
+
+	    // LDY
+	    0b101 => {
+		self.reg_y = self.memory.read(location);
+		self.set_zn(self.reg_y);
+	    },
+
+	    // CPY
+	    0b110 => self.compare(self.reg_x, self.memory.read(location)),
+
+	    // CPX
+	    0b111 => self.compare(self.reg_x, self.memory.read(location)),
+
+	    _ => return Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
+	};
+	Ok(())
+    }
+
+    /// BPL, BMI, BVC, BCC, BCS, BNE, BEQ
+    fn execute_cond_branch(&mut self, instruction: u8) -> Result<(), EmuErr> {
+	let flag = match (instruction >> 6) & 0b11 {
+	    0b00 => self.n() > 0,
+	    0b01 => self.v() > 0,
+	    0b10 => self.c() > 0,
+	    0b11 => self.z() > 0,
+	    _ => return Err(EmuErr::UnrecognizedCondBranchFlag(self.reg_pc)),
+	};
+	let val = (instruction >> 5) & 1 > 0;
+
+	if flag == val {
+	    let offset = self.memory.read(post_inc!(self.reg_pc));
+	    let offset = offset as i8;
+	    // mixed integer ops :)
+	    self.reg_pc = self.reg_pc.wrapping_add_signed(offset as i16);
+	}
+
 	Ok(())
     }
 
@@ -336,14 +414,26 @@ impl Cpu {
     const ZERO: u8 = 1 << 1;
     const _INTERRUPT_DISABLE: u8 = 1 << 2;
     const _BREAK_CMD: u8 = 1 << 4;
-    const _OVERFLOW: u8 = 1 << 6;
+    const OVERFLOW: u8 = 1 << 6;
     const NEGATIVE: u8 = 1 << 7;
 
     fn c(&self) -> u8 {
 	self.reg_s & Cpu::CARRY
     }
 
-    fn set_carry(&mut self, c: bool) {
+    fn v(&self) -> u8 {
+	self.reg_s & Cpu::OVERFLOW
+    }
+
+    fn z(&self) -> u8 {
+	self.reg_s & Cpu::ZERO
+    }
+
+    fn n(&self) -> u8 {
+	self.reg_s & Cpu::NEGATIVE
+    }
+
+    fn set_c(&mut self, c: bool) {
 	if c {
 	    self.reg_s |= Cpu::CARRY;
 	} else {
@@ -352,17 +442,32 @@ impl Cpu {
     }
 
     fn set_zn(&mut self, val: u8) {
-	if val == 0 {
-	    self.reg_s |= Cpu::ZERO;
-	} else {
-	    self.reg_s &= !Cpu::ZERO;
-	}
+	self.set_z(val);
+	self.set_n(val);
+    }
 
+    fn set_n(&mut self, val: u8) {
 	let negative = ((val >> 7) & 1) > 0;
 	if negative {
 	    self.reg_s |= Cpu::NEGATIVE;
 	} else {
 	    self.reg_s &= !Cpu::NEGATIVE;
+	}
+    }
+
+    fn set_z(&mut self, val: u8) {
+	if val == 0 {
+	    self.reg_s |= Cpu::ZERO;
+	} else {
+	    self.reg_s &= !Cpu::ZERO;
+	}
+    }
+
+    fn set_v(&mut self, v: bool) {
+	if v {
+	    self.reg_s |= Cpu::OVERFLOW;
+	} else {
+	    self.reg_s &= !Cpu::OVERFLOW;
 	}
     }
 
