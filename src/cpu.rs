@@ -102,6 +102,22 @@ impl Cpu {
     /// Implied addressing mode instructions. May not match.
     fn maybe_single_byte(&mut self, instruction: u8) -> Result<bool, EmuErr> {
 	match instruction {
+
+	    // JSR
+	    0x20 => {
+		self.push(((self.reg_pc + 1) >> 8) as u8);
+		self.push((self.reg_pc + 1) as u8);
+		self.reg_pc = self.memory.read_u16(self.reg_pc);
+		// Don't need to increment pc.
+	    },
+
+	    // RTS
+	    0x60 => {
+		let pc_lo = self.pull() as u16;
+		let pc_hi = self.pull() as u16;
+		self.reg_pc = (pc_hi << 8) | pc_lo;
+	    },
+
 	    // PHP
 	    0x08 => self.push(self.reg_s),
 
