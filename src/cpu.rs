@@ -45,9 +45,18 @@ macro_rules! post_inc {
 }
 
 impl Cpu {
-    
-    pub fn _reset(&mut self) {
-	// TODO: Implement
+    const RESET_VECTOR: u16 = 0xFFFC;
+    const INITIAL_SP: u8 = 0xFD;
+
+    /// 6502 CPU reset
+    ///
+    /// - sets pc to 0xFFFC
+    /// - sets interrupt disable flag (I)
+    /// - sets initial stack pointer to 0xFD
+    pub fn reset(&mut self) {
+	self.reg_pc = Self::RESET_VECTOR;
+	self.set_i(true);
+	self.reg_sp = Self::INITIAL_SP;
     }
 
     fn step(&mut self) -> Result<(), EmuErr> {
