@@ -13,6 +13,8 @@ pub struct Cpu {
     memory: Memory,
 
     cycles: usize,
+
+    interrupt: Option<Interrupt>,
 }
 
 impl std::default::Default for Cpu {
@@ -28,6 +30,8 @@ impl std::default::Default for Cpu {
 	    memory: Memory::default(),
 
 	    cycles: 0,
+
+	    interrupt: None,
 	}
     }
 }
@@ -42,6 +46,13 @@ macro_rules! post_inc {
 	    old
 	}
     };
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub enum Interrupt {
+    Nmi,
+    Brk,
 }
 
 impl Cpu {
@@ -59,7 +70,43 @@ impl Cpu {
 	self.reg_sp = Self::INITIAL_SP;
     }
 
+    #[allow(dead_code)]
+    pub fn interrupt(&mut self, kind: Interrupt) {
+	self.interrupt = Some(kind);
+    }
+
+    /// Jumps to the appropriate interrupt vector:
+    ///
+    /// - pushes PC and status registers onto the stack
+    /// - sets interrupt disabled flag (I)
+    /// - picks interrupt vector
+    /// - sets pc to that vector
+    fn execute_interrupt(&mut self, kind: Interrupt) {
+	if !matches!(kind, Interrupt::Nmi) && self.i() {
+	    return;
+	}
+
+	self.push((self.reg_pc >> 8) as u8);
+	self.push(self.reg_pc as u8);
+	self.push(self.reg_s);
+
+	self.set_i(true);
+
+	let addr = match kind {
+	    Interrupt::Nmi => 0xFFFE,
+	    Interrupt::Brk => 0xFFFF,
+	};
+
+	let new_pc = self.memory.read_u16(addr);
+	self.reg_pc = new_pc;
+    }
+
     fn step(&mut self) -> Result<(), EmuErr> {
+
+	if let Some(kind) = self.interrupt {
+	    self.execute_interrupt(kind);
+	}
+
 	// An instruction can be 1, 2, or 3 bytes. The first byte always specifies
 	// which instruction (opcode).
 	// Opcode format: aaabbbcc
@@ -102,6 +149,18 @@ impl Cpu {
     /// Implied addressing mode instructions. May not match.
     fn maybe_single_byte(&mut self, instruction: u8) -> Result<bool, EmuErr> {
 	match instruction {
+	    // BRK
+	    0x00 => {
+		self.execute_interrupt(Interrupt::Brk);
+	    },
+
+	    // RTI
+	    0x40 => {
+		self.reg_s = self.pull();
+		let pc_lo = self.pull() as u16;
+		let pc_hi = self.pull() as u16;
+		self.reg_pc = pc_hi << 8 | pc_lo;
+	    },
 
 	    // JSR
 	    0x20 => {
@@ -569,7 +628,9 @@ impl Cpu {
     }
 
     /* Utilities for manipulating the status register */
-    
+
+    // FIXME: standardize the CPU flags. Should the accessors return bool or u8?
+
     // status register masks
     const CARRY: u8 = 1;
     const ZERO: u8 = 1 << 1;
@@ -592,6 +653,10 @@ impl Cpu {
 
     fn n(&self) -> u8 {
 	self.reg_s & Self::NEGATIVE
+    }
+
+    fn i(&self) -> bool {
+	self.reg_s & Self::INTERRUPT_DISABLE > 0
     }
 
     fn set_c(&mut self, c: bool) {
