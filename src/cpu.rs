@@ -67,6 +67,7 @@ impl Cpu {
 	// bits: bbb determine the addressing mode
 	// ref: https://llx.com/Neil/a2/opcodes.html
 	let instruction = self.memory.read(post_inc!(self.reg_pc));
+	// TODO: actually track cycles.
 	self.cycles += 1;
 	let cc = instruction & 0b11;
 
@@ -266,7 +267,7 @@ impl Cpu {
 		let (result, o2) = self.reg_a.overflowing_add(intermediate);
 		// Overflow
 		if o1 || o2 {
-		    self.reg_s |= Cpu::CARRY;
+		    self.reg_s |= Self::CARRY;
 		}
 		self.reg_a = result;
 		self.set_zn(self.reg_a);
@@ -284,9 +285,9 @@ impl Cpu {
 	    0b111 => {
 		let data = self.memory.read(location);
 		let (intermediate, o1) = self.reg_a.overflowing_sub(data);
-		let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_s & Cpu::CARRY));
+		let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_s & Self::CARRY));
 		if o1 || o2 {
-		    self.reg_s &= !Cpu::CARRY;
+		    self.reg_s &= !Self::CARRY;
 		}
 		self.reg_a = result;
 	    },
@@ -318,12 +319,12 @@ impl Cpu {
 	    // Arithmetic left shift (ASL)
 	    0b000 => {
 		if is_accumulator {
-		    self.set_c((self.reg_a >> 7) & Cpu::CARRY > 0);
+		    self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
 		    self.reg_a <<= 1;
 		    self.set_zn(self.reg_a);
 		} else {
 		    let m = self.memory.read(location);
-		    self.set_c((m >> 7) & Cpu::CARRY > 0);
+		    self.set_c((m >> 7) & Self::CARRY > 0);
 		    let m = m << 1;
 		    self.memory.write(location, m);
 		    self.set_zn(m);
@@ -334,12 +335,12 @@ impl Cpu {
 	    0b001 => {
 		let carry = self.c();
 		if is_accumulator {
-		    self.set_c((self.reg_a >> 7) & Cpu::CARRY > 0);
+		    self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
 		    self.reg_a = (self.reg_a >> 1) | (carry << 7);
 		    self.set_zn(self.reg_a);
 		} else {
 		    let m = self.memory.read(location);
-		    self.set_c((m >> 7) & Cpu::CARRY > 0);
+		    self.set_c((m >> 7) & Self::CARRY > 0);
 		    let m = (m >> 1)| (carry << 7);
 		    self.memory.write(location, m);
 		    self.set_zn(m);
@@ -349,12 +350,12 @@ impl Cpu {
 	    // (LSR)
 	    0b010 => {
 		if is_accumulator {
-		    self.set_c(self.reg_a & Cpu::CARRY > 0);
+		    self.set_c(self.reg_a & Self::CARRY > 0);
 		    self.reg_a >>= 1;
 		    self.set_zn(self.reg_a);
 		} else {
 		    let m = self.memory.read(location);
-		    self.set_c(m & Cpu::CARRY > 0);
+		    self.set_c(m & Self::CARRY > 0);
 		    let m = m >> 1;
 		    self.memory.write(location, m);
 		    self.set_zn(m);
@@ -409,7 +410,6 @@ impl Cpu {
 
     /// group three instructions
     /// BIT, JMP, JMP (abs), STY, LDY, CPY, CPX
-    // aaabbbcc
     fn execute_group_three(&mut self, instruction: u8) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	let mut is_conditional_branch = false;
@@ -548,26 +548,26 @@ impl Cpu {
     const NEGATIVE: u8 = 1 << 7;
 
     fn c(&self) -> u8 {
-	self.reg_s & Cpu::CARRY
+	self.reg_s & Self::CARRY
     }
 
     fn v(&self) -> u8 {
-	self.reg_s & Cpu::OVERFLOW
+	self.reg_s & Self::OVERFLOW
     }
 
     fn z(&self) -> u8 {
-	self.reg_s & Cpu::ZERO
+	self.reg_s & Self::ZERO
     }
 
     fn n(&self) -> u8 {
-	self.reg_s & Cpu::NEGATIVE
+	self.reg_s & Self::NEGATIVE
     }
 
     fn set_c(&mut self, c: bool) {
 	if c {
-	    self.reg_s |= Cpu::CARRY;
+	    self.reg_s |= Self::CARRY;
 	} else {
-	    self.reg_s &= !Cpu::CARRY;
+	    self.reg_s &= !Self::CARRY;
 	}
     }
 
@@ -579,33 +579,33 @@ impl Cpu {
     fn set_n(&mut self, val: u8) {
 	let negative = ((val >> 7) & 1) > 0;
 	if negative {
-	    self.reg_s |= Cpu::NEGATIVE;
+	    self.reg_s |= Self::NEGATIVE;
 	} else {
-	    self.reg_s &= !Cpu::NEGATIVE;
+	    self.reg_s &= !Self::NEGATIVE;
 	}
     }
 
     fn set_z(&mut self, val: u8) {
 	if val == 0 {
-	    self.reg_s |= Cpu::ZERO;
+	    self.reg_s |= Self::ZERO;
 	} else {
-	    self.reg_s &= !Cpu::ZERO;
+	    self.reg_s &= !Self::ZERO;
 	}
     }
 
     fn set_v(&mut self, v: bool) {
 	if v {
-	    self.reg_s |= Cpu::OVERFLOW;
+	    self.reg_s |= Self::OVERFLOW;
 	} else {
-	    self.reg_s &= !Cpu::OVERFLOW;
+	    self.reg_s &= !Self::OVERFLOW;
 	}
     }
 
     fn set_i(&mut self, d: bool) {
 	if d {
-	    self.reg_s |= Cpu::INTERRUPT_DISABLE;
+	    self.reg_s |= Self::INTERRUPT_DISABLE;
 	} else {
-	    self.reg_s &= !Cpu::INTERRUPT_DISABLE;
+	    self.reg_s &= !Self::INTERRUPT_DISABLE;
 	}
     }
 
