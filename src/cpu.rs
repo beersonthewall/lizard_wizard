@@ -445,8 +445,23 @@ impl Cpu {
 		self.reg_pc = location;
 	    },
 
-	    // JMP (abs)
-	    0b011 => {},
+	    // JMPI
+	    0b011 => {
+		/*
+		Quoted from: https://www.nesdev.org/obelisk-6502-guide/reference.html#INX
+		"""
+		NB:
+		An original 6502 has does not correctly fetch the target address if
+		the indirect vector falls on a page boundary (e.g. $xxFF where xx is
+		any value from $00 to $FF). In this case fetches the LSB from $xxFF
+		as expected but takes the MSB from $xx00. This is fixed in some later
+		chips like the 65SC02 so for compatibility always ensure the indirect
+		vector is not at the end of the page.
+		"""
+		*/
+		let page = location & 0xff00;
+		self.reg_pc = self.memory.read(location) as u16 | ((self.memory.read(page | (location + 1) & 0xff) as u16) << 8);
+	    },
 
 	    // STY
 	    0b100 => self.memory.write(location, self.reg_y),
