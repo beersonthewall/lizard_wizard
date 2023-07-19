@@ -9,8 +9,6 @@ pub struct Cpu {
     reg_y: u8,
     reg_a: u8,
     reg_s: u8,
-    
-    memory: Memory,
 
     cycles: usize,
 
@@ -26,8 +24,6 @@ impl std::default::Default for Cpu {
 	    reg_y: 0,
 	    reg_a: 0,
 	    reg_s: 0,
-
-	    memory: Memory::default(),
 
 	    cycles: 0,
 
@@ -56,6 +52,7 @@ pub enum Interrupt {
 }
 
 impl Cpu {
+
     const RESET_VECTOR: u16 = 0xFFFC;
     const INITIAL_SP: u8 = 0xFD;
 
@@ -71,7 +68,7 @@ impl Cpu {
     }
 
     #[allow(dead_code)]
-    pub fn interrupt(&mut self, kind: Interrupt) {
+    pub fn interrupt(&mut self, kind: Interrupt, memory: &mut Memory) {
 	self.interrupt = Some(kind);
     }
 
@@ -81,14 +78,14 @@ impl Cpu {
     /// - sets interrupt disabled flag (I)
     /// - picks interrupt vector
     /// - sets pc to that vector
-    fn execute_interrupt(&mut self, kind: Interrupt) {
+    fn execute_interrupt(&mut self, kind: Interrupt, memory: &mut Memory) {
 	if !matches!(kind, Interrupt::Nmi) && self.i() {
 	    return;
 	}
 
-	self.push((self.reg_pc >> 8) as u8);
-	self.push(self.reg_pc as u8);
-	self.push(self.reg_s);
+	self.push((self.reg_pc >> 8) as u8, memory);
+	self.push(self.reg_pc as u8, memory);
+	self.push(self.reg_s, memory);
 
 	self.set_i(true);
 
@@ -97,14 +94,14 @@ impl Cpu {
 	    Interrupt::Brk => 0xFFFF,
 	};
 
-	let new_pc = self.memory.read_u16(addr);
+	let new_pc = memory.read_u16(addr);
 	self.reg_pc = new_pc;
     }
 
-    fn step(&mut self) -> Result<(), EmuErr> {
+    pub fn step(&mut self, memory: &mut Memory) -> Result<(), EmuErr> {
 
 	if let Some(kind) = self.interrupt {
-	    self.execute_interrupt(kind);
+	    self.execute_interrupt(kind, memory);
 	}
 
 	// An instruction can be 1, 2, or 3 bytes. The first byte always specifies
@@ -113,81 +110,81 @@ impl Cpu {
 	// bits: aaa & cc determine the opcode
 	// bits: bbb determine the addressing mode
 	// ref: https://llx.com/Neil/a2/opcodes.html
-	let instruction = self.memory.read(post_inc!(self.reg_pc));
+	let instruction = memory.read(post_inc!(self.reg_pc));
 	// TODO: actually track cycles.
 	self.cycles += 1;
 	let cc = instruction & 0b11;
 
-	if self.maybe_single_byte(instruction)? {
+	if self.maybe_single_byte(instruction, memory)? {
 	    return Ok(())
 	}
 
 	match cc {
 	    // group one instructions
-	    0b01 => self.execute_group_one(instruction),
+	    0b01 => self.execute_group_one(instruction, memory),
 	    // group two instructions
-	    0b10 => self.execute_group_two(instruction),
+	    0b10 => self.execute_group_two(instruction, memory),
 	    // group three instructions
-	    0b00 => self.execute_group_three(instruction),
+	    0b00 => self.execute_group_three(instruction, memory),
 	    _ => Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
 	}
     }
 
     /// pushes a value onto the stack
-    fn push(&mut self, val: u8) {
-	self.memory.write(0x100 | self.reg_sp as u16, val);
+    fn push(&mut self, val: u8, memory: &mut Memory) {
+	memory.write(0x100 | self.reg_sp as u16, val);
 	self.reg_sp -= 1;
     }
 
     /// pulls a value off the top of the stack
-    fn pull(&mut self) -> u8 {
-	let val = self.memory.read(0x100 | self.reg_sp as u16);
+    fn pull(&mut self, memory: &mut Memory) -> u8 {
+	let val = memory.read(0x100 | self.reg_sp as u16);
 	self.reg_sp += 1;
 	val
     }
 
     /// Implied addressing mode instructions. May not match.
-    fn maybe_single_byte(&mut self, instruction: u8) -> Result<bool, EmuErr> {
+    fn maybe_single_byte(&mut self, instruction: u8, memory: &mut Memory) -> Result<bool, EmuErr> {
 	match instruction {
 	    // BRK
 	    0x00 => {
-		self.execute_interrupt(Interrupt::Brk);
+		self.execute_interrupt(Interrupt::Brk, memory);
 	    },
 
 	    // RTI
 	    0x40 => {
-		self.reg_s = self.pull();
-		let pc_lo = self.pull() as u16;
-		let pc_hi = self.pull() as u16;
+		self.reg_s = self.pull(memory);
+		let pc_lo = self.pull(memory) as u16;
+		let pc_hi = self.pull(memory) as u16;
 		self.reg_pc = pc_hi << 8 | pc_lo;
 	    },
 
 	    // JSR
 	    0x20 => {
-		self.push(((self.reg_pc + 1) >> 8) as u8);
-		self.push((self.reg_pc + 1) as u8);
-		self.reg_pc = self.memory.read_u16(self.reg_pc);
+		self.push(((self.reg_pc + 1) >> 8) as u8, memory);
+		self.push((self.reg_pc + 1) as u8, memory);
+		self.reg_pc = memory.read_u16(self.reg_pc);
 		// Don't need to increment pc.
 	    },
 
 	    // RTS
 	    0x60 => {
-		let pc_lo = self.pull() as u16;
-		let pc_hi = self.pull() as u16;
+		let pc_lo = self.pull(memory) as u16;
+		let pc_hi = self.pull(memory) as u16;
 		self.reg_pc = (pc_hi << 8) | pc_lo;
 	    },
 
 	    // PHP
-	    0x08 => self.push(self.reg_s),
+	    0x08 => self.push(self.reg_s, memory),
 
 	    // PLP
-	    0x28 => self.reg_s = self.pull(),
+	    0x28 => self.reg_s = self.pull(memory),
 
 	    // PHA
-	    0x48 => self.push(self.reg_a),
+	    0x48 => self.push(self.reg_a, memory),
 
 	    // PLA
-	    0x68 => self.reg_a = self.pull(),
+	    0x68 => self.reg_a = self.pull(memory),
 
 	    // DEY
 	    0x88 => {
@@ -280,17 +277,17 @@ impl Cpu {
 
     /// 'group one' instructions are:
     /// ORA, AND, EOR, ADC, STA, LDA, CMP, SBC
-    fn execute_group_one(&mut self, instruction: u8) -> Result<(), EmuErr> {
+    fn execute_group_one(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	// FIXME: don't think this is corret or even how this should be done
 	let location = match addressing_mode {
 	    // indexed indirect
 	    // Example: LDA ($20, X)
-	    0b000 => self.indexed_indirect(),
+	    0b000 => self.indexed_indirect(memory),
 
 	    // zero page
 	    // Example: LDA $20
-	    0b001 => self.zero_page(),
+	    0b001 => self.zero_page(memory),
 
 	    // #immediate
 	    // Example: LDA #20
@@ -298,22 +295,22 @@ impl Cpu {
 
 	    // absolute
 	    // Example: LDA $32FF
-	    0b011 => self.absolute(),
+	    0b011 => self.absolute(memory),
 
 	    // indirect indexed
 	    // (zero page), Y
-	    0b100 => self.indirect_indexed(),
+	    0b100 => self.indirect_indexed(memory),
 
 	    // zero page, X
-	    0b101 => self.zero_page_x(),
+	    0b101 => self.zero_page_x(memory),
 
 	    // absolute, Y
 	    // Example: LDA $2000,Y where Y = $92 => loads value at $2092 to acc
-	    0b110 => self.absolute_y(),
+	    0b110 => self.absolute_y(memory),
 
 	    // absolute, X
 	    // Example: LDA $32F0,X
-	    0b111 => self.absolute_x(),
+	    0b111 => self.absolute_x(memory),
 
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
 	};
@@ -322,23 +319,23 @@ impl Cpu {
 	match aaa {
 	    // ORA
 	    0b000 => {
-		self.reg_a |= self.memory.read(location);
+		self.reg_a |= memory.read(location);
 		self.set_zn(self.reg_a);
 	    },
 	    // AND
 	    0b001 => {
-		self.reg_a |= self.memory.read(location);
+		self.reg_a |= memory.read(location);
 		self.set_zn(self.reg_a);
 	    },
 	    // EOR
 	    0b010 => {
-		self.reg_a ^= self.memory.read(location);
+		self.reg_a ^= memory.read(location);
 		self.set_zn(self.reg_a);
 	    },
 	    // ADC
 	    0b011 => {
 		let carry = self.reg_s & 1;
-		let (intermediate, o1) = self.memory.read(location).overflowing_add(carry);
+		let (intermediate, o1) = memory.read(location).overflowing_add(carry);
 		let (result, o2) = self.reg_a.overflowing_add(intermediate);
 		// Overflow
 		if o1 || o2 {
@@ -348,17 +345,17 @@ impl Cpu {
 		self.set_zn(self.reg_a);
 	    },
 	    // STA
-	    0b100 => self.memory.write(location, self.reg_a),
+	    0b100 => memory.write(location, self.reg_a),
 	    // LDA
 	    0b101 => {
-		self.reg_a = self.memory.read(location);
+		self.reg_a = memory.read(location);
 		self.set_zn(self.reg_a);
 	    },
 	    // CMP
-	    0b110 => self.compare(self.reg_a, self.memory.read(location)),
+	    0b110 => self.compare(self.reg_a, memory.read(location)),
 	    // SBC
 	    0b111 => {
-		let data = self.memory.read(location);
+		let data = memory.read(location);
 		let (intermediate, o1) = self.reg_a.overflowing_sub(data);
 		let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_s & Self::CARRY));
 		if o1 || o2 {
@@ -373,19 +370,19 @@ impl Cpu {
 
     /// group two instructions
     /// ASL, ROL, LSR, ROR, STX, LDX, DEC, INC
-    fn execute_group_two(&mut self, instruction: u8) -> Result<(), EmuErr> {
+    fn execute_group_two(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	let mut is_accumulator = false;
 	let location = match addressing_mode {
-	    0b000 => self.memory.read(post_inc!(self.reg_pc)) as u16,
-	    0b001 => self.zero_page(),
+	    0b000 => memory.read(post_inc!(self.reg_pc)) as u16,
+	    0b001 => self.zero_page(memory),
 	    0b010 => {
 		is_accumulator = true;
 		0
 	    },
-	    0b011 => self.absolute(),
-	    0b101 => self.zero_page_x(),
-	    0b111 => self.absolute_x(),
+	    0b011 => self.absolute(memory),
+	    0b101 => self.zero_page_x(memory),
+	    0b111 => self.absolute_x(memory),
 	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
 	};
 
@@ -398,10 +395,10 @@ impl Cpu {
 		    self.reg_a <<= 1;
 		    self.set_zn(self.reg_a);
 		} else {
-		    let m = self.memory.read(location);
+		    let m = memory.read(location);
 		    self.set_c((m >> 7) & Self::CARRY > 0);
 		    let m = m << 1;
-		    self.memory.write(location, m);
+		    memory.write(location, m);
 		    self.set_zn(m);
 		}
 	    },
@@ -414,10 +411,10 @@ impl Cpu {
 		    self.reg_a = (self.reg_a >> 1) | (carry << 7);
 		    self.set_zn(self.reg_a);
 		} else {
-		    let m = self.memory.read(location);
+		    let m = memory.read(location);
 		    self.set_c((m >> 7) & Self::CARRY > 0);
 		    let m = (m >> 1)| (carry << 7);
-		    self.memory.write(location, m);
+		    memory.write(location, m);
 		    self.set_zn(m);
 		}
 	    },
@@ -429,10 +426,10 @@ impl Cpu {
 		    self.reg_a >>= 1;
 		    self.set_zn(self.reg_a);
 		} else {
-		    let m = self.memory.read(location);
+		    let m = memory.read(location);
 		    self.set_c(m & Self::CARRY > 0);
 		    let m = m >> 1;
-		    self.memory.write(location, m);
+		    memory.write(location, m);
 		    self.set_zn(m);
 		}
 	    },
@@ -446,7 +443,7 @@ impl Cpu {
 		    self.reg_s |= old_zero_bit;
 		    self.set_zn(self.reg_a);
 		} else {
-		    let mut m = self.memory.read(location);
+		    let mut m = memory.read(location);
 		    let old_zero_bit: u8 = m & 1;
 		    m >>= 1;
 		    m |= self.reg_s & (1 << 6);
@@ -456,24 +453,24 @@ impl Cpu {
 	    },
 
 	    // STX
-	    0b100 => self.memory.write(location, self.reg_x),
+	    0b100 => memory.write(location, self.reg_x),
 
 	    // LDX
 	    0b101 => {
-		self.reg_x = self.memory.read(location);
+		self.reg_x = memory.read(location);
 		self.set_zn(self.reg_x);
 	    },
 
 	    // DEC
 	    0b110 => {
-		let result = self.memory.read(location).wrapping_sub(1);
+		let result = memory.read(location).wrapping_sub(1);
 		self.reg_s |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
 		self.set_zn(result);
 	    },
 
 	    // INC
 	    0b111 => {
-		let result = self.memory.read(location).wrapping_add(1);
+		let result = memory.read(location).wrapping_add(1);
 		self.reg_s |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
 		self.set_zn(result);
 	    },
@@ -485,15 +482,15 @@ impl Cpu {
 
     /// group three instructions
     /// BIT, JMP, JMP (abs), STY, LDY, CPY, CPX
-    fn execute_group_three(&mut self, instruction: u8) -> Result<(), EmuErr> {
+    fn execute_group_three(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	let mut is_conditional_branch = false;
 	let location = match addressing_mode {
 	    0b000 => post_inc!(self.reg_pc),
-	    0b001 => self.zero_page(),
-	    0b011 => self.absolute(),
-	    0b101 => self.zero_page_x(),
-	    0b111 => self.absolute_x(),
+	    0b001 => self.zero_page(memory),
+	    0b011 => self.absolute(memory),
+	    0b101 => self.zero_page_x(memory),
+	    0b111 => self.absolute_x(memory),
 	    0b100 => {
 		is_conditional_branch = true;
 		0
@@ -502,14 +499,14 @@ impl Cpu {
 	};
 
 	if is_conditional_branch {
-	    return self.execute_cond_branch(instruction);
+	    return self.execute_cond_branch(instruction, memory);
 	}
 
 	let aaa: u8 = (instruction >> 5) & 0b111;
 	match aaa {
 	    // BIT
 	    0b001 => {
-		let m = self.memory.read(location);
+		let m = memory.read(location);
 		self.set_v((m >> 6) & 1 > 0);
 		self.set_z(m & self.reg_a);
 		self.set_n(m);
@@ -535,23 +532,23 @@ impl Cpu {
 		"""
 		*/
 		let page = location & 0xff00;
-		self.reg_pc = self.memory.read(location) as u16 | ((self.memory.read(page | (location + 1) & 0xff) as u16) << 8);
+		self.reg_pc = memory.read(location) as u16 | ((memory.read(page | (location + 1) & 0xff) as u16) << 8);
 	    },
 
 	    // STY
-	    0b100 => self.memory.write(location, self.reg_y),
+	    0b100 => memory.write(location, self.reg_y),
 
 	    // LDY
 	    0b101 => {
-		self.reg_y = self.memory.read(location);
+		self.reg_y = memory.read(location);
 		self.set_zn(self.reg_y);
 	    },
 
 	    // CPY
-	    0b110 => self.compare(self.reg_x, self.memory.read(location)),
+	    0b110 => self.compare(self.reg_x, memory.read(location)),
 
 	    // CPX
-	    0b111 => self.compare(self.reg_x, self.memory.read(location)),
+	    0b111 => self.compare(self.reg_x, memory.read(location)),
 
 	    _ => return Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
 	};
@@ -559,7 +556,7 @@ impl Cpu {
     }
 
     /// BPL, BMI, BVC, BCC, BCS, BNE, BEQ
-    fn execute_cond_branch(&mut self, instruction: u8) -> Result<(), EmuErr> {
+    fn execute_cond_branch(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
 	let flag = match (instruction >> 6) & 0b11 {
 	    0b00 => self.n() > 0,
 	    0b01 => self.v() > 0,
@@ -570,7 +567,7 @@ impl Cpu {
 	let val = (instruction >> 5) & 1 > 0;
 
 	if flag == val {
-	    let offset = self.memory.read(post_inc!(self.reg_pc));
+	    let offset = memory.read(post_inc!(self.reg_pc));
 	    let offset = offset as i8;
 	    // mixed integer ops :)
 	    self.reg_pc = self.reg_pc.wrapping_add_signed(offset as i16);
@@ -582,49 +579,49 @@ impl Cpu {
     /* Addressing mode utilities */
 
     /// indexed indirect addressing mode resolution
-    fn indexed_indirect(&mut self) -> u16 {
-	let base = self.memory.read(post_inc!(self.reg_pc));
-	self.memory.read_u16(base.wrapping_add(self.reg_x) as u16)
+    fn indexed_indirect(&mut self, memory: &mut Memory) -> u16 {
+	let base = memory.read(post_inc!(self.reg_pc));
+	memory.read_u16(base.wrapping_add(self.reg_x) as u16)
     }
 
     /// indirect indexed addressing mode resolution
-    fn indirect_indexed(&mut self) -> u16 {
-	let addr = self.memory.read(post_inc!(self.reg_pc));
+    fn indirect_indexed(&mut self, memory: &mut Memory) -> u16 {
+	let addr = memory.read(post_inc!(self.reg_pc));
 	addr as u16 + self.reg_y as u16
     }
 
     /// absolute addressing mode resolution
-    fn absolute(&mut self) -> u16 {
-	let val = self.memory.read_u16(self.reg_pc);
+    fn absolute(&mut self, memory: &mut Memory) -> u16 {
+	let val = memory.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	val
     }
 
     /// indexed (by X) absolute addressing
-    fn absolute_x(&mut self) -> u16 {
-	let result = self.memory.read_u16(self.reg_pc) + self.reg_x as u16;
+    fn absolute_x(&mut self, memory: &mut Memory) -> u16 {
+	let result = memory.read_u16(self.reg_pc) + self.reg_x as u16;
 	self.reg_pc += 2;
 	result
     }
 
     /// indexed (by Y) absolute addressing
-    fn absolute_y(&mut self) -> u16 {
-	let result = self.reg_y as u16 + self.memory.read_u16(self.reg_pc);
+    fn absolute_y(&mut self, memory: &mut Memory) -> u16 {
+	let result = self.reg_y as u16 + memory.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	result
     }
 
     /// zero page addressing mode resolution
-    fn zero_page(&mut self) -> u16 {
-	self.memory.read(post_inc!(self.reg_pc)) as u16
+    fn zero_page(&mut self, memory: &mut Memory) -> u16 {
+	memory.read(post_inc!(self.reg_pc)) as u16
     }
 
     /// indexed (by X) zero page addressing mode resolution
-    fn zero_page_x(&mut self) -> u16 {
+    fn zero_page_x(&mut self, memory: &mut Memory) -> u16 {
 	// Note: If we have LDA $80,X with X = $FF then memory location will be
 	// $7F and NOT $017F.
 	// Example: LDA $20,X
-	self.memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16
+	memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16
     }
 
     /* Utilities for manipulating the status register */
@@ -708,12 +705,5 @@ impl Cpu {
     fn compare(&mut self, fst: u8, snd: u8) {
 	self.set_zn(fst - snd);
 	self.set_c(fst >= snd);
-    }
-
-    /// Run the CPU
-    pub fn run(&mut self) -> Result<(), EmuErr> {
-	loop {
-	    self.step()?;
-	}
     }
 }

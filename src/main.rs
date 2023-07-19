@@ -1,11 +1,12 @@
 mod cpu;
 mod err;
+mod emulator;
 mod memory;
+mod ppu;
 
-use cpu::Cpu;
+use emulator::Emulator;
 
 fn main() {
-    let mut cpu = Cpu::default();
-    cpu.reset();
-    cpu.run().unwrap();
+    let mut emu = Emulator::default();
+    emu.run("").unwrap();
 }
