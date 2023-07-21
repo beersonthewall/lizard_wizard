@@ -1,13 +1,13 @@
+use super::bus::Bus;
 use super::cpu::Cpu;
 use super::err::EmuErr;
-use super::memory::Memory;
 use super::ppu::Ppu;
 use std::convert::AsRef;
 use std::path::Path;
 
 pub struct Emulator {
     cpu: Cpu,
-    memory: Memory,
+    memory: Bus,
     ppu: Ppu,
 }
 
@@ -15,7 +15,7 @@ impl std::default::Default for Emulator {
     fn default() -> Self {
 	Self {
 	    cpu: Cpu::default(),
-	    memory: Memory::default(),
+	    memory: Bus::default(),
 	    ppu: Ppu::default(),
 	}
     }

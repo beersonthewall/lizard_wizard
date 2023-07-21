@@ -1,5 +1,5 @@
 use super::err::EmuErr;
-use super::memory::Memory;
+use super::bus::Bus;
 
 pub struct Cpu {
     // Registers
@@ -65,10 +65,13 @@ impl Cpu {
 	self.reg_pc = Self::RESET_VECTOR;
 	self.set_i(true);
 	self.reg_sp = Self::INITIAL_SP;
+	self.reg_a = 0;
+	self.reg_x = 0;
+	self.reg_y = 0;
     }
 
     #[allow(dead_code)]
-    pub fn interrupt(&mut self, kind: Interrupt, memory: &mut Memory) {
+    pub fn interrupt(&mut self, kind: Interrupt, memory: &mut Bus) {
 	self.interrupt = Some(kind);
     }
 
@@ -78,7 +81,7 @@ impl Cpu {
     /// - sets interrupt disabled flag (I)
     /// - picks interrupt vector
     /// - sets pc to that vector
-    fn execute_interrupt(&mut self, kind: Interrupt, memory: &mut Memory) {
+    fn execute_interrupt(&mut self, kind: Interrupt, memory: &mut Bus) {
 	if !matches!(kind, Interrupt::Nmi) && self.i() {
 	    return;
 	}
@@ -98,7 +101,7 @@ impl Cpu {
 	self.reg_pc = new_pc;
     }
 
-    pub fn step(&mut self, memory: &mut Memory) -> Result<(), EmuErr> {
+    pub fn step(&mut self, memory: &mut Bus) -> Result<(), EmuErr> {
 
 	if let Some(kind) = self.interrupt {
 	    self.execute_interrupt(kind, memory);
@@ -131,20 +134,20 @@ impl Cpu {
     }
 
     /// pushes a value onto the stack
-    fn push(&mut self, val: u8, memory: &mut Memory) {
+    fn push(&mut self, val: u8, memory: &mut Bus) {
 	memory.write(0x100 | self.reg_sp as u16, val);
 	self.reg_sp -= 1;
     }
 
     /// pulls a value off the top of the stack
-    fn pull(&mut self, memory: &mut Memory) -> u8 {
+    fn pull(&mut self, memory: &mut Bus) -> u8 {
 	let val = memory.read(0x100 | self.reg_sp as u16);
 	self.reg_sp += 1;
 	val
     }
 
     /// Implied addressing mode instructions. May not match.
-    fn maybe_single_byte(&mut self, instruction: u8, memory: &mut Memory) -> Result<bool, EmuErr> {
+    fn maybe_single_byte(&mut self, instruction: u8, memory: &mut Bus) -> Result<bool, EmuErr> {
 	match instruction {
 	    // BRK
 	    0x00 => {
@@ -277,7 +280,7 @@ impl Cpu {
 
     /// 'group one' instructions are:
     /// ORA, AND, EOR, ADC, STA, LDA, CMP, SBC
-    fn execute_group_one(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
+    fn execute_group_one(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	// FIXME: don't think this is corret or even how this should be done
 	let location = match addressing_mode {
@@ -370,7 +373,7 @@ impl Cpu {
 
     /// group two instructions
     /// ASL, ROL, LSR, ROR, STX, LDX, DEC, INC
-    fn execute_group_two(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
+    fn execute_group_two(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	let mut is_accumulator = false;
 	let location = match addressing_mode {
@@ -482,7 +485,7 @@ impl Cpu {
 
     /// group three instructions
     /// BIT, JMP, JMP (abs), STY, LDY, CPY, CPX
-    fn execute_group_three(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
+    fn execute_group_three(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
 	let addressing_mode = (instruction >> 2) & 0b111;
 	let mut is_conditional_branch = false;
 	let location = match addressing_mode {
@@ -556,7 +559,7 @@ impl Cpu {
     }
 
     /// BPL, BMI, BVC, BCC, BCS, BNE, BEQ
-    fn execute_cond_branch(&mut self, instruction: u8, memory: &mut Memory) -> Result<(), EmuErr> {
+    fn execute_cond_branch(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
 	let flag = match (instruction >> 6) & 0b11 {
 	    0b00 => self.n() > 0,
 	    0b01 => self.v() > 0,
@@ -579,45 +582,45 @@ impl Cpu {
     /* Addressing mode utilities */
 
     /// indexed indirect addressing mode resolution
-    fn indexed_indirect(&mut self, memory: &mut Memory) -> u16 {
+    fn indexed_indirect(&mut self, memory: &mut Bus) -> u16 {
 	let base = memory.read(post_inc!(self.reg_pc));
 	memory.read_u16(base.wrapping_add(self.reg_x) as u16)
     }
 
     /// indirect indexed addressing mode resolution
-    fn indirect_indexed(&mut self, memory: &mut Memory) -> u16 {
+    fn indirect_indexed(&mut self, memory: &mut Bus) -> u16 {
 	let addr = memory.read(post_inc!(self.reg_pc));
 	addr as u16 + self.reg_y as u16
     }
 
     /// absolute addressing mode resolution
-    fn absolute(&mut self, memory: &mut Memory) -> u16 {
+    fn absolute(&mut self, memory: &mut Bus) -> u16 {
 	let val = memory.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	val
     }
 
     /// indexed (by X) absolute addressing
-    fn absolute_x(&mut self, memory: &mut Memory) -> u16 {
+    fn absolute_x(&mut self, memory: &mut Bus) -> u16 {
 	let result = memory.read_u16(self.reg_pc) + self.reg_x as u16;
 	self.reg_pc += 2;
 	result
     }
 
     /// indexed (by Y) absolute addressing
-    fn absolute_y(&mut self, memory: &mut Memory) -> u16 {
+    fn absolute_y(&mut self, memory: &mut Bus) -> u16 {
 	let result = self.reg_y as u16 + memory.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	result
     }
 
     /// zero page addressing mode resolution
-    fn zero_page(&mut self, memory: &mut Memory) -> u16 {
+    fn zero_page(&mut self, memory: &mut Bus) -> u16 {
 	memory.read(post_inc!(self.reg_pc)) as u16
     }
 
     /// indexed (by X) zero page addressing mode resolution
-    fn zero_page_x(&mut self, memory: &mut Memory) -> u16 {
+    fn zero_page_x(&mut self, memory: &mut Bus) -> u16 {
 	// Note: If we have LDA $80,X with X = $FF then memory location will be
 	// $7F and NOT $017F.
 	// Example: LDA $20,X

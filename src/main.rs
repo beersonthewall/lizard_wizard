@@ -1,7 +1,7 @@
 mod cpu;
 mod err;
 mod emulator;
-mod memory;
+mod bus;
 mod ppu;
 
 use emulator::Emulator;

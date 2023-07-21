@@ -1,8 +1,8 @@
-pub struct Memory {
+pub struct Bus {
     bytes: Vec<u8>,
 }
 
-impl std::default::Default for Memory {
+impl std::default::Default for Bus {
     fn default() -> Self {
 	Self {
 	    // allocate 65K addressable bytes
@@ -11,7 +11,20 @@ impl std::default::Default for Memory {
     }
 }
 
-impl Memory {
+impl Bus {
+
+    fn reset(&mut self) {
+	// Frame IRQ enabled
+	self.bytes[0x4017] = 0x00;
+	// all channels disabled
+	self.bytes[0x4015] = 0x00;
+	for i in 0x4010..=0x4013 {
+	    self.bytes[i] = 0x00;
+	}
+	for i in 0x4000..=0x400F {
+	    self.bytes[i] = 0x00;
+	}
+    }
 
     /// Read a byte from memory at `addr`.
     pub fn read(&self, addr: u16) -> u8 {
