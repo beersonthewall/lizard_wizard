@@ -8,7 +8,7 @@ pub struct Cpu {
     reg_x: u8,
     reg_y: u8,
     reg_a: u8,
-    reg_s: u8,
+    reg_p: u8,
 
     cycles: usize,
 
@@ -23,7 +23,7 @@ impl std::default::Default for Cpu {
 	    reg_x: 0,
 	    reg_y: 0,
 	    reg_a: 0,
-	    reg_s: 0,
+	    reg_p: 0,
 
 	    cycles: 0,
 
@@ -85,7 +85,7 @@ impl Cpu {
 
 	self.push((self.reg_pc >> 8) as u8, memory);
 	self.push(self.reg_pc as u8, memory);
-	self.push(self.reg_s, memory);
+	self.push(self.reg_p, memory);
 
 	self.set_i(true);
 
@@ -153,7 +153,7 @@ impl Cpu {
 
 	    // RTI
 	    0x40 => {
-		self.reg_s = self.pull(memory);
+		self.reg_p = self.pull(memory);
 		let pc_lo = self.pull(memory) as u16;
 		let pc_hi = self.pull(memory) as u16;
 		self.reg_pc = pc_hi << 8 | pc_lo;
@@ -175,10 +175,10 @@ impl Cpu {
 	    },
 
 	    // PHP
-	    0x08 => self.push(self.reg_s, memory),
+	    0x08 => self.push(self.reg_p, memory),
 
 	    // PLP
-	    0x28 => self.reg_s = self.pull(memory),
+	    0x28 => self.reg_p = self.pull(memory),
 
 	    // PHA
 	    0x48 => self.push(self.reg_a, memory),
@@ -334,12 +334,12 @@ impl Cpu {
 	    },
 	    // ADC
 	    0b011 => {
-		let carry = self.reg_s & 1;
+		let carry = self.reg_p & 1;
 		let (intermediate, o1) = memory.read(location).overflowing_add(carry);
 		let (result, o2) = self.reg_a.overflowing_add(intermediate);
 		// Overflow
 		if o1 || o2 {
-		    self.reg_s |= Self::CARRY;
+		    self.reg_p |= Self::CARRY;
 		}
 		self.reg_a = result;
 		self.set_zn(self.reg_a);
@@ -357,9 +357,9 @@ impl Cpu {
 	    0b111 => {
 		let data = memory.read(location);
 		let (intermediate, o1) = self.reg_a.overflowing_sub(data);
-		let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_s & Self::CARRY));
+		let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_p & Self::CARRY));
 		if o1 || o2 {
-		    self.reg_s &= !Self::CARRY;
+		    self.reg_p &= !Self::CARRY;
 		}
 		self.reg_a = result;
 	    },
@@ -439,15 +439,15 @@ impl Cpu {
 		if is_accumulator {
 		    let old_zero_bit: u8 = self.reg_a & 1;
 		    self.reg_a >>= 1;
-		    self.reg_a |= self.reg_s & (1 << 6);
-		    self.reg_s |= old_zero_bit;
+		    self.reg_a |= self.reg_p & (1 << 6);
+		    self.reg_p |= old_zero_bit;
 		    self.set_zn(self.reg_a);
 		} else {
 		    let mut m = memory.read(location);
 		    let old_zero_bit: u8 = m & 1;
 		    m >>= 1;
-		    m |= self.reg_s & (1 << 6);
-		    self.reg_s |= old_zero_bit;
+		    m |= self.reg_p & (1 << 6);
+		    self.reg_p |= old_zero_bit;
 		    self.set_zn(m);
 		}
 	    },
@@ -464,14 +464,14 @@ impl Cpu {
 	    // DEC
 	    0b110 => {
 		let result = memory.read(location).wrapping_sub(1);
-		self.reg_s |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
+		self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
 		self.set_zn(result);
 	    },
 
 	    // INC
 	    0b111 => {
 		let result = memory.read(location).wrapping_add(1);
-		self.reg_s |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
+		self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
 		self.set_zn(result);
 	    },
 
@@ -637,30 +637,30 @@ impl Cpu {
     const NEGATIVE: u8 = 1 << 7;
 
     fn c(&self) -> u8 {
-	self.reg_s & Self::CARRY
+	self.reg_p & Self::CARRY
     }
 
     fn v(&self) -> u8 {
-	self.reg_s & Self::OVERFLOW
+	self.reg_p & Self::OVERFLOW
     }
 
     fn z(&self) -> u8 {
-	self.reg_s & Self::ZERO
+	self.reg_p & Self::ZERO
     }
 
     fn n(&self) -> u8 {
-	self.reg_s & Self::NEGATIVE
+	self.reg_p & Self::NEGATIVE
     }
 
     fn i(&self) -> bool {
-	self.reg_s & Self::INTERRUPT_DISABLE > 0
+	self.reg_p & Self::INTERRUPT_DISABLE > 0
     }
 
     fn set_c(&mut self, c: bool) {
 	if c {
-	    self.reg_s |= Self::CARRY;
+	    self.reg_p |= Self::CARRY;
 	} else {
-	    self.reg_s &= !Self::CARRY;
+	    self.reg_p &= !Self::CARRY;
 	}
     }
 
@@ -672,33 +672,33 @@ impl Cpu {
     fn set_n(&mut self, val: u8) {
 	let negative = ((val >> 7) & 1) > 0;
 	if negative {
-	    self.reg_s |= Self::NEGATIVE;
+	    self.reg_p |= Self::NEGATIVE;
 	} else {
-	    self.reg_s &= !Self::NEGATIVE;
+	    self.reg_p &= !Self::NEGATIVE;
 	}
     }
 
     fn set_z(&mut self, val: u8) {
 	if val == 0 {
-	    self.reg_s |= Self::ZERO;
+	    self.reg_p |= Self::ZERO;
 	} else {
-	    self.reg_s &= !Self::ZERO;
+	    self.reg_p &= !Self::ZERO;
 	}
     }
 
     fn set_v(&mut self, v: bool) {
 	if v {
-	    self.reg_s |= Self::OVERFLOW;
+	    self.reg_p |= Self::OVERFLOW;
 	} else {
-	    self.reg_s &= !Self::OVERFLOW;
+	    self.reg_p &= !Self::OVERFLOW;
 	}
     }
 
     fn set_i(&mut self, d: bool) {
 	if d {
-	    self.reg_s |= Self::INTERRUPT_DISABLE;
+	    self.reg_p |= Self::INTERRUPT_DISABLE;
 	} else {
-	    self.reg_s &= !Self::INTERRUPT_DISABLE;
+	    self.reg_p &= !Self::INTERRUPT_DISABLE;
 	}
     }
 
