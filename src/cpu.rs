@@ -376,7 +376,7 @@ impl Cpu {
 
 	    // DEX
 	    I{ opcode: Op::DEX, addr_mode: AM::IMP, ..} => {
-		self.reg_x -= 1;
+		self.reg_x = self.reg_x.wrapping_sub(1);
 		self.set_zn(self.reg_x);
 	    },
 
@@ -696,6 +696,7 @@ impl Cpu {
 
 	    // BNE
 	    I{ opcode: Op::BNE, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() == 0, bus),
+
 	    // BEQ
 	    I{ opcode: Op::BEQ, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() != 0, bus),
 	    
@@ -783,7 +784,7 @@ impl Cpu {
 	    // NOP
 	    I{ opcode: Op::NOP, addr_mode: AM::IMP, ..} => {},
 	    
-	    /* illegal opcodes (unimplemented for now) */
+	    /* illegal opcodes (most unimplemented for now) */
 
 	    I{ opcode: Op::KIL, .. } => return Ok(true),
 
