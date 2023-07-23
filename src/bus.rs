@@ -44,7 +44,6 @@ impl Bus {
 
         self.bytes[0x0600..(0x0600 + game_code.len())].copy_from_slice(&game_code[..]);
 	self.write_u16(0xFFFC, 0x600);
-	println!("reset vec 0xFFFC {:X}", self.read_u16(0xFFFC));
     }
 
     pub fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {
