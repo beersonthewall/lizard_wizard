@@ -721,6 +721,7 @@ impl Cpu {
 		let pc_lo = self.pull(bus) as u16;
 		let pc_hi = self.pull(bus) as u16;
 		self.reg_pc = (pc_hi << 8) | pc_lo;
+		self.reg_pc += 1;
 	    },
 
 	    // JMP
@@ -939,8 +940,8 @@ impl Cpu {
 
     /// pulls a value off the top of the stack
     fn pull(&mut self, memory: &mut Bus) -> u8 {
-	let val = memory.read(0x100 | self.reg_sp as u16);
 	self.reg_sp += 1;
+	let val = memory.read(0x100 | self.reg_sp as u16);
 	val
     }
 
