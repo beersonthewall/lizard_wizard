@@ -20,7 +20,6 @@ def main():
             for cell in row.find_all('td')[1:]:
                 data = cell.text.split()
                 data = ''.join(data)
-
                 i = 0
                 while i < len(data) and data[i].isupper():
                     i += 1
@@ -39,9 +38,10 @@ def main():
                     rowOutput.append(f"I::new(Op::{opcode},{cycles},AM::IMP),")
                     continue
 
+                start = i
                 while i < len(data) and data[i].islower():
                     i += 1
-                addr_mode = opcode[start:i]
+                addr_mode = data[start:i]
 
                 # convert opcode to rust enum
                 if addr_mode == 'abs':
@@ -52,8 +52,6 @@ def main():
                     addr_mode = 'AM::ABY'
                 elif addr_mode == 'imm':
                     addr_mode = 'AM::IMM'
-                elif addr_mode == '':
-                    addr_mode = 'AM::IMP'
                 elif addr_mode == 'ind':
                     addr_mode = 'AM::IND'
                 elif addr_mode == 'izx':
@@ -68,7 +66,8 @@ def main():
                     addr_mode = 'AM::ZPY'
                 elif addr_mode == 'rel':
                     addr_mode = 'AM::REL'
-
+                elif addr_mode == '':
+                    addr_mode = 'AM::IMP'
                 cycles = int(data[i]) if i < len(data) else 0
                 rowOutput.append(f"I::new(Op::{opcode},{cycles},{addr_mode}),")
 
