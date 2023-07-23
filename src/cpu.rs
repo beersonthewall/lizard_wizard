@@ -696,6 +696,8 @@ impl Cpu {
 
 	    // BNE
 	    I{ opcode: Op::BNE, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() == 0, bus),
+	    // BEQ
+	    I{ opcode: Op::BEQ, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() != 0, bus),
 	    
 	    // BRK
 	    I{ opcode: Op::BRK, addr_mode: AM::IMP, ..} => self.execute_interrupt(Interrupt::Brk, bus),
