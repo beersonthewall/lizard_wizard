@@ -956,6 +956,8 @@ impl Cpu {
 	    let offset = offset as i8;
 	    // mixed integer ops :)
 	    self.reg_pc = self.reg_pc.wrapping_add_signed(offset as i16);
+	} else {
+	    self.reg_pc += 1;
 	}
     }
 
