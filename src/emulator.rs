@@ -7,7 +7,7 @@ use std::path::Path;
 
 pub struct Emulator {
     cpu: Cpu,
-    memory: Bus,
+    bus: Bus,
     ppu: Ppu,
 }
 
@@ -15,18 +15,23 @@ impl std::default::Default for Emulator {
     fn default() -> Self {
 	Self {
 	    cpu: Cpu::default(),
-	    memory: Bus::default(),
+	    bus: Bus::default(),
 	    ppu: Ppu::default(),
 	}
     }
 }
 
 impl Emulator {
-    pub fn run<P: AsRef<Path>>(&mut self, _rom_path: P) -> Result<(), EmuErr> {
-	self.cpu.reset();
-
+    pub fn run<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {
+	self.bus.load();
+	self.cpu.reset(&mut self.bus);
 	loop {
-	    self.cpu.step(&mut self.memory)?;
+	    // 3 ppu ticks per cpu cycle
+/*	    self.ppu.step(&mut self.bus)?;
+	    self.ppu.step(&mut self.bus)?;
+	    self.ppu.step(&mut self.bus)?;*/
+
+	    self.cpu.step(&mut self.bus)?;
 	}
     }
 }

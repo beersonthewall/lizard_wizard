@@ -1,12 +1,13 @@
-mod cpu;
-mod err;
-mod emulator;
 mod bus;
+mod cpu;
+mod emulator;
+mod err;
+mod opcodes;
 mod ppu;
 
 use emulator::Emulator;
 
 fn main() {
     let mut emu = Emulator::default();
-    emu.run("").unwrap();
+    emu.run("./testrom.nes").unwrap();
 }

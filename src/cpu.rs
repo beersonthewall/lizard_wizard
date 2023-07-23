@@ -1,5 +1,6 @@
 use super::err::EmuErr;
 use super::bus::Bus;
+use super::opcodes::{OPCODES,I,AM,Op};
 
 pub struct Cpu {
     // Registers
@@ -61,13 +62,14 @@ impl Cpu {
     /// - sets pc to 0xFFFC
     /// - sets interrupt disable flag (I)
     /// - sets initial stack pointer to 0xFD
-    pub fn reset(&mut self) {
-	self.reg_pc = Self::RESET_VECTOR;
+    pub fn reset(&mut self, bus: &mut Bus) {
+	self.reg_pc = bus.read_u16(Self::RESET_VECTOR);
 	self.set_i(true);
 	self.reg_sp = Self::INITIAL_SP;
 	self.reg_a = 0;
 	self.reg_x = 0;
 	self.reg_y = 0;
+	self.cycles = 0;
     }
 
     #[allow(dead_code)]
@@ -102,35 +104,827 @@ impl Cpu {
     }
 
     pub fn step(&mut self, memory: &mut Bus) -> Result<(), EmuErr> {
+	if self.cycles == 0 {
+	    if let Some(kind) = self.interrupt {
+		self.execute_interrupt(kind, memory);
+	    }
 
-	if let Some(kind) = self.interrupt {
-	    self.execute_interrupt(kind, memory);
+	    let opcode: u8 = memory.read(post_inc!(self.reg_pc));
+	    let lsd: usize = (opcode & 0x0F) as usize;
+	    let msd: usize = ((opcode >> 4) & 0xF) as usize;
+	    let instruction = &OPCODES[msd][lsd];
+	    self.cycles += instruction.cycles as usize;
+	    self.execute(*instruction, memory)?;
 	}
 
-	// An instruction can be 1, 2, or 3 bytes. The first byte always specifies
-	// which instruction (opcode).
-	// Opcode format: aaabbbcc
-	// bits: aaa & cc determine the opcode
-	// bits: bbb determine the addressing mode
-	// ref: https://llx.com/Neil/a2/opcodes.html
-	let instruction = memory.read(post_inc!(self.reg_pc));
-	// TODO: actually track cycles.
-	self.cycles += 1;
-	let cc = instruction & 0b11;
+	self.cycles -= 1;
+	Ok(())
+    }
 
-	if self.maybe_single_byte(instruction, memory)? {
-	    return Ok(())
-	}
+    fn execute(&mut self, instruction: I, bus: &mut Bus) -> Result<(), EmuErr> {
+	println!("{:?}", instruction);
+	match instruction {
+	    /* logical and arithmetic instructions */
 
-	match cc {
-	    // group one instructions
-	    0b01 => self.execute_group_one(instruction, memory),
-	    // group two instructions
-	    0b10 => self.execute_group_two(instruction, memory),
-	    // group three instructions
-	    0b00 => self.execute_group_three(instruction, memory),
-	    _ => Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
+	    // ORA
+	    I{ opcode: Op::ORA, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.ora(location, bus);
+	    },
+
+	    // AND
+	    I{ opcode: Op::AND, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.and(location, bus);
+	    },
+	    I{ opcode: Op::AND, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.and(location, bus);
+	    },
+
+	    // EOR
+	    I{ opcode: Op::EOR, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.eor(location, bus);
+	    },
+	    I{ opcode: Op::EOR, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.eor(location, bus);
+	    },
+
+	    // ADC
+	    I{ opcode: Op::ADC, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.adc(location, bus);
+	    },
+	    I{ opcode: Op::ADC, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.adc(location, bus);
+	    },
+
+	    // SBC
+	    I{ opcode: Op::SBC, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.sbc(location, bus);
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.sbc(location, bus);
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.sbc(location, bus);
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.sbc(location, bus);
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.sbc(location, bus);
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.sbc(location, bus);
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.sbc(location, bus)
+	    },
+	    I{ opcode: Op::SBC, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.sbc(location, bus);
+	    },
+
+	    // CMP
+	    I{ opcode: Op::CMP, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+	    I{ opcode: Op::CMP, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.cmp(self.reg_a, bus.read(location));
+	    },
+
+	    // CPX
+	    I{ opcode: Op::CPX, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.cmp(self.reg_x, bus.read(location));
+	    },
+	    I{ opcode: Op::CPX, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.cmp(self.reg_x, bus.read(location));
+	    },
+	    I{ opcode: Op::CPX, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.cmp(self.reg_x, bus.read(location));
+	    },
+
+	    // CPY
+	    I{ opcode: Op::CPY, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.cmp(self.reg_y, bus.read(location));
+	    },
+	    I{ opcode: Op::CPY, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.cmp(self.reg_y, bus.read(location));
+	    },
+	    I{ opcode: Op::CPY, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.cmp(self.reg_y, bus.read(location));
+	    },
+
+	    // DEC
+	    I{ opcode: Op::DEC, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.dec(location, bus);
+	    },
+	    I{ opcode: Op::DEC, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.dec(location, bus);
+	    },
+	    I{ opcode: Op::DEC, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.dec(location, bus);
+	    },
+	    I{ opcode: Op::DEC, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.dec(location, bus);
+	    },
+
+	    // DEX
+	    I{ opcode: Op::DEX, addr_mode: AM::IMP, ..} => {
+		self.reg_x -= 1;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // DEY
+	    I{ opcode: Op::DEY, addr_mode: AM::IMP, ..} => {
+		self.reg_y -= 1;
+		self.set_zn(self.reg_y);
+	    },
+
+	    // INC
+	    I{ opcode: Op::INC, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.inc(location, bus);
+	    },
+	    I{ opcode: Op::INC, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.inc(location, bus);
+	    },
+	    I{ opcode: Op::INC, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.inc(location, bus);
+	    },
+	    I{ opcode: Op::INC, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.inc(location, bus);
+	    },
+
+	    // INX
+	    I{ opcode: Op::INX, addr_mode: AM::IMP, ..} => {
+		self.reg_x += 1;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // INY
+	    I{ opcode: Op::INY, addr_mode: AM::IMP, ..} => {
+		self.reg_y += 1;
+		self.set_zn(self.reg_y);
+	    },
+
+	    // ASL
+	    I{ opcode: Op::ASL, addr_mode: AM::IMP, ..} => {
+		self.asl_acc();
+	    },
+	    I{ opcode: Op::ASL, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.asl(location, bus);
+	    },
+	    I{ opcode: Op::ASL, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.asl(location, bus);
+	    },
+	    I{ opcode: Op::ASL, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.asl(location, bus);
+	    },
+	    I{ opcode: Op::ASL, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.asl(location, bus);
+	    },
+
+	    // ROL
+	    I{ opcode: Op::ROL, addr_mode: AM::IMP, ..} => self.rol_acc(),
+	    I{ opcode: Op::ROL, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.rol(location, bus);
+	    },
+	    I{ opcode: Op::ROL, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.rol(location, bus);
+	    },
+	    I{ opcode: Op::ROL, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.rol(location, bus);
+	    },
+	    I{ opcode: Op::ROL, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.rol(location, bus);
+	    },
+
+	    // LSR
+	    I{ opcode: Op::LSR, addr_mode: AM::IMP, ..} => self.lsr_acc(),
+	    I{ opcode: Op::LSR, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.lsr(location, bus);
+	    },
+	    I{ opcode: Op::LSR, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.lsr(location, bus);
+	    },
+	    I{ opcode: Op::LSR, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.lsr(location, bus);
+	    },
+	    I{ opcode: Op::LSR, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.lsr(location, bus);
+	    },
+
+	    // ROR
+	    I{ opcode: Op::ROR, addr_mode: AM::IMP, ..} => self.ror_acc(),
+	    I{ opcode: Op::ROR, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.ror(location, bus);
+	    },
+	    I{ opcode: Op::ROR, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.ror(location, bus);
+	    },
+	    I{ opcode: Op::ROR, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.ror(location, bus);
+	    },
+	    I{ opcode: Op::ROR, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.ror(location, bus);
+	    },
+
+	    /* move instructions */
+
+	    // LDA
+	    I{ opcode: Op::LDA, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.lda(location, bus);
+	    },
+	    I{ opcode: Op::LDA, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.lda(location, bus);
+	    },
+
+	    // STA
+	    I{ opcode: Op::STA, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.sta(location, bus);
+	    },
+	    I{ opcode: Op::STA, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.sta(location, bus);
+	    },
+	    I{ opcode: Op::STA, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.sta(location, bus);
+	    },
+	    I{ opcode: Op::STA, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.sta(location, bus);
+	    },
+	    I{ opcode: Op::STA, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.sta(location, bus);
+	    },
+	    I{ opcode: Op::STA, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.sta(location, bus);
+	    },
+	    I{ opcode: Op::STA, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.sta(location, bus);
+	    },
+
+	    // LDX
+	    I{ opcode: Op::LDX, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.ldx(location, bus);
+	    },
+	    I{ opcode: Op::LDX, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.ldx(location, bus);
+	    },
+	    I{ opcode: Op::LDX, addr_mode: AM::ZPY, ..} => {
+		let location = self.zero_page_y(bus);
+		self.ldx(location, bus);
+	    },
+	    I{ opcode: Op::LDX, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.ldx(location, bus);
+	    },
+	    I{ opcode: Op::LDX, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.ldx(location, bus);
+	    },
+
+	    // STX
+	    I{ opcode: Op::STX, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		bus.write(location, self.reg_x);
+	    },
+	    I{ opcode: Op::STX, addr_mode: AM::ZPY, ..} => {
+		let location = self.zero_page_y(bus);
+		bus.write(location, self.reg_x);
+	    },
+	    I{ opcode: Op::STX, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		bus.write(location, self.reg_x);
+	    },
+
+	    // LDY
+	    I{ opcode: Op::LDY, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.ldy(location, bus);
+	    },
+	    I{ opcode: Op::LDY, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.ldy(location, bus);
+	    },
+	    I{ opcode: Op::LDY, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.ldy(location, bus);
+	    },
+	    I{ opcode: Op::LDY, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.ldy(location, bus);
+	    },
+	    I{ opcode: Op::LDY, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.ldy(location, bus);
+	    },
+
+	    // STY
+	    I{ opcode: Op::STY, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		bus.write(location, self.reg_y);
+	    },
+	    I{ opcode: Op::STY, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		bus.write(location, self.reg_y);
+	    },
+	    I{ opcode: Op::STY, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		bus.write(location, self.reg_y);
+	    },
+
+	    // TAX
+	    I{ opcode: Op::TAX, addr_mode: AM::IMP, ..} => {
+		self.reg_x = self.reg_a;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // TXA
+	    I{ opcode: Op::TXA, addr_mode: AM::IMP, ..} => {
+		self.reg_a = self.reg_x;
+		self.set_zn(self.reg_a);
+	    },
+
+	    // TAY
+	    I{ opcode: Op::TAY, addr_mode: AM::IMP, ..} => {
+		self.reg_y = self.reg_a;
+		self.set_zn(self.reg_y);
+	    },
+
+	    // TYA
+	    I{ opcode: Op::TYA, addr_mode: AM::IMP, ..} => {
+		self.reg_a = self.reg_y;
+		self.set_zn(self.reg_a);
+	    },
+
+	    // TSX
+	    I{ opcode: Op::TSX, addr_mode: AM::IMP, ..} => {
+		self.reg_x = self.reg_sp;
+		self.set_zn(self.reg_x);
+	    },
+
+	    // TXS
+	    I{ opcode: Op::TXS, addr_mode: AM::IMP, ..} => self.reg_sp = self.reg_x,
+
+	    // PLA
+	    I{ opcode: Op::PLA, addr_mode: AM::IMP, ..} => self.reg_a = self.pull(bus),
+
+	    // PHA
+	    I{ opcode: Op::PHA, addr_mode: AM::IMP, ..} => self.push(self.reg_a, bus),
+
+	    // PLP
+	    I{ opcode: Op::PLP, addr_mode: AM::IMP, ..} => self.reg_p = self.pull(bus),
+
+	    // PHP
+	    I{ opcode: Op::PHP, addr_mode: AM::IMP, ..} => self.push(self.reg_p, bus),
+
+	    /* jump/flag instructions */
+
+	    // BPL
+	    I{ opcode: Op::BPL, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.n() == 0, bus),
+
+	    // BMI
+	    I{ opcode: Op::BMI, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.n() != 0, bus),
+
+	    // BVC
+	    I{ opcode: Op::BVC, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.v() == 0, bus),
+
+	    // BVS
+	    I{ opcode: Op::BVS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.v() != 0, bus),
+
+	    // BCS
+	    I{ opcode: Op::BCS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.c() != 0, bus),
+
+	    // BNE
+	    I{ opcode: Op::BNE, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() == 0, bus),
+	    
+	    // BRK
+	    I{ opcode: Op::BRK, addr_mode: AM::IMP, ..} => self.execute_interrupt(Interrupt::Brk, bus),
+
+	    // RTI
+	    I{ opcode: Op::RTI, addr_mode: AM::IMP, ..} => {
+		self.reg_p = self.pull(bus);
+		let pc_lo = self.pull(bus) as u16;
+		let pc_hi = self.pull(bus) as u16;
+		self.reg_pc = pc_hi << 8 | pc_lo;
+	    },
+
+	    // JSR
+	    I{ opcode: Op::JSR, addr_mode: AM::ABS, ..} => {
+		self.push(((self.reg_pc + 1) >> 8) as u8, bus);
+		self.push((self.reg_pc + 1) as u8, bus);
+		self.reg_pc = bus.read_u16(self.reg_pc);
+		// Don't need to increment pc.
+	    },
+
+	    // RTS
+	    I{ opcode: Op::RTS, addr_mode: AM::IMP, ..} => {
+		let pc_lo = self.pull(bus) as u16;
+		let pc_hi = self.pull(bus) as u16;
+		self.reg_pc = (pc_hi << 8) | pc_lo;
+	    },
+
+	    // JMP
+	    I{ opcode: Op::JMP, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.reg_pc = location;
+	    },
+	    I{ opcode: Op::JMP, addr_mode: AM::IND, ..} => {
+		/*
+		Quoted from: https://www.nesdev.org/obelisk-6502-guide/reference.html#INX
+		"""
+		NB:
+		An original 6502 has does not correctly fetch the target address if
+		the indirect vector falls on a page boundary (e.g. $xxFF where xx is
+		any value from $00 to $FF). In this case fetches the LSB from $xxFF
+		as expected but takes the MSB from $xx00. This is fixed in some later
+		chips like the 65SC02 so for compatibility always ensure the indirect
+		vector is not at the end of the page.
+		"""
+		 */
+		let location = self.absolute(bus);
+		let page = location & 0xff00;
+		self.reg_pc = bus.read(location) as u16 | ((bus.read(page | (location + 1) & 0xff) as u16) << 8);
+	    },
+
+	    // BIT
+	    I{ opcode: Op::BIT, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.bit(location, bus);
+	    },
+	    I{ opcode: Op::BIT, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.bit(location, bus);
+	    },
+
+	    // CLC
+	    I{ opcode: Op::CLC, addr_mode: AM::IMP, ..} => self.set_c(false),
+
+	    // SEC
+	    I{ opcode: Op::SEC, addr_mode: AM::IMP, ..} => self.set_c(true),
+
+	    // CLD
+	    I{ opcode: Op::CLD, addr_mode: AM::IMP, ..} => {}, // decimal flag is disabled on NES
+
+	    // SED
+	    I{ opcode: Op::SED, addr_mode: AM::IMP, ..} => {}, // decimal flag is disabled on NES
+
+	    // CLI
+	    I{ opcode: Op::CLI, addr_mode: AM::IMP, ..} => self.set_i(false),
+
+	    // SEI
+	    I{ opcode: Op::SEI, addr_mode: AM::IMP, ..} => self.set_i(true),
+
+	    // CLV
+	    I{ opcode: Op::CLV, addr_mode: AM::IMP, ..} => self.set_v(false),
+
+	    // NOP
+	    I{ opcode: Op::NOP, addr_mode: AM::IMP, ..} => {},
+	    
+	    /* illegal opcodes (unimplemented for now) */
+
+	    /* catch all */
+	    _ => return Err(EmuErr::UnrecognizedOpCode(0x0)),
 	}
+	Ok(())
+    }
+
+    fn ora(&mut self, location: u16, bus: &mut Bus) {
+	self.reg_a |= bus.read(location);
+	self.set_zn(self.reg_a);
+    }
+
+    fn and(&mut self, location: u16, bus: &mut Bus) {
+	self.reg_a |= bus.read(location);
+	self.set_zn(self.reg_a);
+    }
+
+    fn eor(&mut self, location: u16, bus: &mut Bus) {
+	self.reg_a ^= bus.read(location);
+	self.set_zn(self.reg_a);
+    }
+
+    fn adc(&mut self, location: u16, bus: &mut Bus) {
+	let carry = self.reg_p & 1;
+	let (intermediate, o1) = bus.read(location).overflowing_add(carry);
+	let (result, o2) = self.reg_a.overflowing_add(intermediate);
+	// Overflow
+	if o1 || o2 {
+	    self.reg_p |= Self::CARRY;
+	}
+	self.reg_a = result;
+	self.set_zn(self.reg_a);
+    }
+
+    fn sbc(&mut self, location: u16, bus: &mut Bus) {
+	let data = bus.read(location);
+	let (intermediate, o1) = self.reg_a.overflowing_sub(data);
+	let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_p & Self::CARRY));
+	if o1 || o2 {
+	    self.reg_p &= !Self::CARRY;
+	}
+	self.reg_a = result;
+    }
+
+    fn cmp(&mut self, fst: u8, snd: u8) {
+	self.set_zn(fst - snd);
+	self.set_c(fst >= snd);
+    }
+
+    fn dec(&mut self, location: u16, bus: &mut Bus) {
+	let result = bus.read(location).wrapping_sub(1);
+	self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
+	self.set_zn(result);
+    }
+
+    fn inc(&mut self, location: u16, bus: &mut Bus) {
+	let result = bus.read(location).wrapping_add(1);
+	self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
+	self.set_zn(result);
+    }
+
+    fn asl_acc(&mut self) {
+	self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
+	self.reg_a <<= 1;
+	self.set_zn(self.reg_a);
+    }
+
+    fn asl(&mut self, location: u16, bus: &mut Bus) {
+	let m = bus.read(location);
+	self.set_c((m >> 7) & Self::CARRY > 0);
+	let m = m << 1;
+	bus.write(location, m);
+	self.set_zn(m);
+    }
+
+    fn rol_acc(&mut self) {
+	let carry = self.c();
+	self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
+	self.reg_a = (self.reg_a >> 1) | (carry << 7);
+	self.set_zn(self.reg_a);
+    }
+
+    fn rol(&mut self, location: u16, bus: &mut Bus) {
+	let carry = self.c();
+	let m = bus.read(location);
+	self.set_c((m >> 7) & Self::CARRY > 0);
+	let m = (m >> 1)| (carry << 7);
+	bus.write(location, m);
+	self.set_zn(m);
+    }
+
+    fn lsr_acc(&mut self) {
+	self.set_c(self.reg_a & Self::CARRY > 0);
+	self.reg_a >>= 1;
+	self.set_zn(self.reg_a);
+    }
+
+    fn lsr(&mut self, location: u16, bus: &mut Bus) {
+	let m = bus.read(location);
+	self.set_c(m & Self::CARRY > 0);
+	let m = m >> 1;
+	bus.write(location, m);
+	self.set_zn(m);
+    }
+
+    fn ror_acc(&mut self) {
+	let old_zero_bit: u8 = self.reg_a & 1;
+	self.reg_a >>= 1;
+	self.reg_a |= self.reg_p & (1 << 6);
+	self.reg_p |= old_zero_bit;
+	self.set_zn(self.reg_a);
+    }
+
+    fn ror(&mut self, location: u16, bus: &mut Bus) {
+	let mut m = bus.read(location);
+	let old_zero_bit: u8 = m & 1;
+	m >>= 1;
+	m |= self.reg_p & (1 << 6);
+	self.reg_p |= old_zero_bit;
+	self.set_zn(m);
+    }
+
+    fn lda(&mut self, location: u16, bus: &mut Bus) {
+	self.reg_a = bus.read(location);
+	self.set_zn(self.reg_a);
+    }
+
+    fn sta(&mut self, location: u16, bus: &mut Bus) {
+	bus.write(location, self.reg_a);
+    }
+
+    fn ldx(&mut self, location: u16, bus: &mut Bus) {
+	self.reg_x = bus.read(location);
+	self.set_zn(self.reg_x);
+    }
+
+    fn ldy(&mut self, location: u16, bus: &mut Bus) {
+	self.reg_y = bus.read(location);
+	self.set_zn(self.reg_y);
+    }
+
+    fn bit(&mut self, location: u16, bus: &mut Bus) {
+	let m = bus.read(location);
+	self.set_v((m >> 6) & 1 > 0);
+	self.set_z(m & self.reg_a);
+	self.set_n(m);
     }
 
     /// pushes a value onto the stack
@@ -146,485 +940,66 @@ impl Cpu {
 	val
     }
 
-    /// Implied addressing mode instructions. May not match.
-    fn maybe_single_byte(&mut self, instruction: u8, memory: &mut Bus) -> Result<bool, EmuErr> {
-	match instruction {
-	    // BRK
-	    0x00 => {
-		self.execute_interrupt(Interrupt::Brk, memory);
-	    },
-
-	    // RTI
-	    0x40 => {
-		self.reg_p = self.pull(memory);
-		let pc_lo = self.pull(memory) as u16;
-		let pc_hi = self.pull(memory) as u16;
-		self.reg_pc = pc_hi << 8 | pc_lo;
-	    },
-
-	    // JSR
-	    0x20 => {
-		self.push(((self.reg_pc + 1) >> 8) as u8, memory);
-		self.push((self.reg_pc + 1) as u8, memory);
-		self.reg_pc = memory.read_u16(self.reg_pc);
-		// Don't need to increment pc.
-	    },
-
-	    // RTS
-	    0x60 => {
-		let pc_lo = self.pull(memory) as u16;
-		let pc_hi = self.pull(memory) as u16;
-		self.reg_pc = (pc_hi << 8) | pc_lo;
-	    },
-
-	    // PHP
-	    0x08 => self.push(self.reg_p, memory),
-
-	    // PLP
-	    0x28 => self.reg_p = self.pull(memory),
-
-	    // PHA
-	    0x48 => self.push(self.reg_a, memory),
-
-	    // PLA
-	    0x68 => self.reg_a = self.pull(memory),
-
-	    // DEY
-	    0x88 => {
-		self.reg_y -= 1;
-		self.set_zn(self.reg_y);
-	    },
-
-	    // TAY
-	    0xA8 => {
-		self.reg_y = self.reg_a;
-		self.set_zn(self.reg_y);
-	    },
-
-	    // INY
-	    0xC8 => {
-		self.reg_y += 1;
-		self.set_zn(self.reg_y);
-	    },
-
-	    // INX
-	    0xE8 => {
-		self.reg_x += 1;
-		self.set_zn(self.reg_x);
-	    },
-
-	    // CLC
-	    0x18 => self.set_c(false), // clears the carry flag
-
-	    // SEC
-	    0x38 => self.set_c(true),
-
-	    // CLI
-	    0x58 => self.set_i(false), // clear interrupt disable flag
-
-	    // SEI
-	    0x78 => self.set_i(true),
-
-	    // TYA
-	    0x98 => {
-		self.reg_a = self.reg_y;
-		self.set_zn(self.reg_a);
-	    },
-
-	    // CLV
-	    0xB8 => self.set_v(false), // clears overflow flag
-
-	    // CLD
-	    0xD8 => {}, // decimal flag is disabled on NES
-
-	    // SED
-	    0xF8 => {}, // decimal flag is disabled on NES
-
-	    // TXA
-	    0x8A => {
-		self.reg_a = self.reg_x;
-		self.set_zn(self.reg_a);
-	    },
-
-	    // TXS
-	    0x9A => self.reg_sp = self.reg_x,
-
-	    // TAX
-	    0xAA => {
-		self.reg_x = self.reg_a;
-		self.set_zn(self.reg_x);
-	    },
-
-	    // TSX
-	    0xBA => {
-		self.reg_x = self.reg_sp;
-		self.set_zn(self.reg_x);
-	    },
-
-	    // DEX
-	    0xCA => {
-		self.reg_x -= 1;
-		self.set_zn(self.reg_x);
-	    },
-
-	    // NOP
-	    0xEA => {
-		// be lazy :)
-	    },
-
-	    // Didn't find an instruction, let caller know.
-	    _ => return Ok(false),
-	}
-	Ok(true)
-    }
-
-    /// 'group one' instructions are:
-    /// ORA, AND, EOR, ADC, STA, LDA, CMP, SBC
-    fn execute_group_one(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
-	let addressing_mode = (instruction >> 2) & 0b111;
-	// FIXME: don't think this is corret or even how this should be done
-	let location = match addressing_mode {
-	    // indexed indirect
-	    // Example: LDA ($20, X)
-	    0b000 => self.indexed_indirect(memory),
-
-	    // zero page
-	    // Example: LDA $20
-	    0b001 => self.zero_page(memory),
-
-	    // #immediate
-	    // Example: LDA #20
-	    0b010 => post_inc!(self.reg_pc),
-
-	    // absolute
-	    // Example: LDA $32FF
-	    0b011 => self.absolute(memory),
-
-	    // indirect indexed
-	    // (zero page), Y
-	    0b100 => self.indirect_indexed(memory),
-
-	    // zero page, X
-	    0b101 => self.zero_page_x(memory),
-
-	    // absolute, Y
-	    // Example: LDA $2000,Y where Y = $92 => loads value at $2092 to acc
-	    0b110 => self.absolute_y(memory),
-
-	    // absolute, X
-	    // Example: LDA $32F0,X
-	    0b111 => self.absolute_x(memory),
-
-	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
-	};
-
-	let aaa = (instruction >> 5) & 0b111;
-	match aaa {
-	    // ORA
-	    0b000 => {
-		self.reg_a |= memory.read(location);
-		self.set_zn(self.reg_a);
-	    },
-	    // AND
-	    0b001 => {
-		self.reg_a |= memory.read(location);
-		self.set_zn(self.reg_a);
-	    },
-	    // EOR
-	    0b010 => {
-		self.reg_a ^= memory.read(location);
-		self.set_zn(self.reg_a);
-	    },
-	    // ADC
-	    0b011 => {
-		let carry = self.reg_p & 1;
-		let (intermediate, o1) = memory.read(location).overflowing_add(carry);
-		let (result, o2) = self.reg_a.overflowing_add(intermediate);
-		// Overflow
-		if o1 || o2 {
-		    self.reg_p |= Self::CARRY;
-		}
-		self.reg_a = result;
-		self.set_zn(self.reg_a);
-	    },
-	    // STA
-	    0b100 => memory.write(location, self.reg_a),
-	    // LDA
-	    0b101 => {
-		self.reg_a = memory.read(location);
-		self.set_zn(self.reg_a);
-	    },
-	    // CMP
-	    0b110 => self.compare(self.reg_a, memory.read(location)),
-	    // SBC
-	    0b111 => {
-		let data = memory.read(location);
-		let (intermediate, o1) = self.reg_a.overflowing_sub(data);
-		let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_p & Self::CARRY));
-		if o1 || o2 {
-		    self.reg_p &= !Self::CARRY;
-		}
-		self.reg_a = result;
-	    },
-	    _ => return Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
-	}
-	Ok(())
-    }
-
-    /// group two instructions
-    /// ASL, ROL, LSR, ROR, STX, LDX, DEC, INC
-    fn execute_group_two(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
-	let addressing_mode = (instruction >> 2) & 0b111;
-	let mut is_accumulator = false;
-	let location = match addressing_mode {
-	    0b000 => memory.read(post_inc!(self.reg_pc)) as u16,
-	    0b001 => self.zero_page(memory),
-	    0b010 => {
-		is_accumulator = true;
-		0
-	    },
-	    0b011 => self.absolute(memory),
-	    0b101 => self.zero_page_x(memory),
-	    0b111 => self.absolute_x(memory),
-	    _ => return Err(EmuErr::UnrecognizedAddressingMode(instruction as u16)),
-	};
-
-	let aaa = (instruction >> 5) & 0b111;
-	match aaa {
-	    // Arithmetic left shift (ASL)
-	    0b000 => {
-		if is_accumulator {
-		    self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
-		    self.reg_a <<= 1;
-		    self.set_zn(self.reg_a);
-		} else {
-		    let m = memory.read(location);
-		    self.set_c((m >> 7) & Self::CARRY > 0);
-		    let m = m << 1;
-		    memory.write(location, m);
-		    self.set_zn(m);
-		}
-	    },
-
-	    // (ROL)
-	    0b001 => {
-		let carry = self.c();
-		if is_accumulator {
-		    self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
-		    self.reg_a = (self.reg_a >> 1) | (carry << 7);
-		    self.set_zn(self.reg_a);
-		} else {
-		    let m = memory.read(location);
-		    self.set_c((m >> 7) & Self::CARRY > 0);
-		    let m = (m >> 1)| (carry << 7);
-		    memory.write(location, m);
-		    self.set_zn(m);
-		}
-	    },
-
-	    // (LSR)
-	    0b010 => {
-		if is_accumulator {
-		    self.set_c(self.reg_a & Self::CARRY > 0);
-		    self.reg_a >>= 1;
-		    self.set_zn(self.reg_a);
-		} else {
-		    let m = memory.read(location);
-		    self.set_c(m & Self::CARRY > 0);
-		    let m = m >> 1;
-		    memory.write(location, m);
-		    self.set_zn(m);
-		}
-	    },
-
-	    // ROR
-	    0b011 => {
-		if is_accumulator {
-		    let old_zero_bit: u8 = self.reg_a & 1;
-		    self.reg_a >>= 1;
-		    self.reg_a |= self.reg_p & (1 << 6);
-		    self.reg_p |= old_zero_bit;
-		    self.set_zn(self.reg_a);
-		} else {
-		    let mut m = memory.read(location);
-		    let old_zero_bit: u8 = m & 1;
-		    m >>= 1;
-		    m |= self.reg_p & (1 << 6);
-		    self.reg_p |= old_zero_bit;
-		    self.set_zn(m);
-		}
-	    },
-
-	    // STX
-	    0b100 => memory.write(location, self.reg_x),
-
-	    // LDX
-	    0b101 => {
-		self.reg_x = memory.read(location);
-		self.set_zn(self.reg_x);
-	    },
-
-	    // DEC
-	    0b110 => {
-		let result = memory.read(location).wrapping_sub(1);
-		self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
-		self.set_zn(result);
-	    },
-
-	    // INC
-	    0b111 => {
-		let result = memory.read(location).wrapping_add(1);
-		self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
-		self.set_zn(result);
-	    },
-
-	    _ => return Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
-	};
-	Ok(())
-    }
-
-    /// group three instructions
-    /// BIT, JMP, JMP (abs), STY, LDY, CPY, CPX
-    fn execute_group_three(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
-	let addressing_mode = (instruction >> 2) & 0b111;
-	let mut is_conditional_branch = false;
-	let location = match addressing_mode {
-	    0b000 => post_inc!(self.reg_pc),
-	    0b001 => self.zero_page(memory),
-	    0b011 => self.absolute(memory),
-	    0b101 => self.zero_page_x(memory),
-	    0b111 => self.absolute_x(memory),
-	    0b100 => {
-		is_conditional_branch = true;
-		0
-	    }
-	    _ => return Err(EmuErr::UnrecognizedAddressingMode(self.reg_pc)),
-	};
-
-	if is_conditional_branch {
-	    return self.execute_cond_branch(instruction, memory);
-	}
-
-	let aaa: u8 = (instruction >> 5) & 0b111;
-	match aaa {
-	    // BIT
-	    0b001 => {
-		let m = memory.read(location);
-		self.set_v((m >> 6) & 1 > 0);
-		self.set_z(m & self.reg_a);
-		self.set_n(m);
-	    },
-
-	    // JMP
-	    0b010 => {
-		self.reg_pc = location;
-	    },
-
-	    // JMPI
-	    0b011 => {
-		/*
-		Quoted from: https://www.nesdev.org/obelisk-6502-guide/reference.html#INX
-		"""
-		NB:
-		An original 6502 has does not correctly fetch the target address if
-		the indirect vector falls on a page boundary (e.g. $xxFF where xx is
-		any value from $00 to $FF). In this case fetches the LSB from $xxFF
-		as expected but takes the MSB from $xx00. This is fixed in some later
-		chips like the 65SC02 so for compatibility always ensure the indirect
-		vector is not at the end of the page.
-		"""
-		*/
-		let page = location & 0xff00;
-		self.reg_pc = memory.read(location) as u16 | ((memory.read(page | (location + 1) & 0xff) as u16) << 8);
-	    },
-
-	    // STY
-	    0b100 => memory.write(location, self.reg_y),
-
-	    // LDY
-	    0b101 => {
-		self.reg_y = memory.read(location);
-		self.set_zn(self.reg_y);
-	    },
-
-	    // CPY
-	    0b110 => self.compare(self.reg_x, memory.read(location)),
-
-	    // CPX
-	    0b111 => self.compare(self.reg_x, memory.read(location)),
-
-	    _ => return Err(EmuErr::UnrecognizedOpCode(self.reg_pc)),
-	};
-	Ok(())
-    }
-
     /// BPL, BMI, BVC, BCC, BCS, BNE, BEQ
-    fn execute_cond_branch(&mut self, instruction: u8, memory: &mut Bus) -> Result<(), EmuErr> {
-	let flag = match (instruction >> 6) & 0b11 {
-	    0b00 => self.n() > 0,
-	    0b01 => self.v() > 0,
-	    0b10 => self.c() > 0,
-	    0b11 => self.z() > 0,
-	    _ => return Err(EmuErr::UnrecognizedCondBranchFlag(self.reg_pc)),
-	};
-	let val = (instruction >> 5) & 1 > 0;
-
-	if flag == val {
-	    let offset = memory.read(post_inc!(self.reg_pc));
+    fn execute_cond_branch(&mut self, condition: bool, bus: &mut Bus) {
+	if condition {
+	    let offset = bus.read(post_inc!(self.reg_pc));
 	    let offset = offset as i8;
 	    // mixed integer ops :)
 	    self.reg_pc = self.reg_pc.wrapping_add_signed(offset as i16);
 	}
-
-	Ok(())
     }
 
     /* Addressing mode utilities */
 
     /// indexed indirect addressing mode resolution
-    fn indexed_indirect(&mut self, memory: &mut Bus) -> u16 {
-	let base = memory.read(post_inc!(self.reg_pc));
-	memory.read_u16(base.wrapping_add(self.reg_x) as u16)
+    fn indexed_indirect(&mut self, bus: &mut Bus) -> u16 {
+	let base = bus.read(post_inc!(self.reg_pc));
+	bus.read_u16(base.wrapping_add(self.reg_x) as u16)
     }
 
     /// indirect indexed addressing mode resolution
-    fn indirect_indexed(&mut self, memory: &mut Bus) -> u16 {
-	let addr = memory.read(post_inc!(self.reg_pc));
+    fn indirect_indexed(&mut self, bus: &mut Bus) -> u16 {
+	let addr = bus.read(post_inc!(self.reg_pc));
 	addr as u16 + self.reg_y as u16
     }
 
     /// absolute addressing mode resolution
-    fn absolute(&mut self, memory: &mut Bus) -> u16 {
-	let val = memory.read_u16(self.reg_pc);
+    fn absolute(&mut self, bus: &mut Bus) -> u16 {
+	let val = bus.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	val
     }
 
     /// indexed (by X) absolute addressing
-    fn absolute_x(&mut self, memory: &mut Bus) -> u16 {
-	let result = memory.read_u16(self.reg_pc) + self.reg_x as u16;
+    fn absolute_x(&mut self, bus: &mut Bus) -> u16 {
+	let result = bus.read_u16(self.reg_pc) + self.reg_x as u16;
 	self.reg_pc += 2;
 	result
     }
 
     /// indexed (by Y) absolute addressing
-    fn absolute_y(&mut self, memory: &mut Bus) -> u16 {
-	let result = self.reg_y as u16 + memory.read_u16(self.reg_pc);
+    fn absolute_y(&mut self, bus: &mut Bus) -> u16 {
+	let result = self.reg_y as u16 + bus.read_u16(self.reg_pc);
 	self.reg_pc += 2;
 	result
     }
 
     /// zero page addressing mode resolution
-    fn zero_page(&mut self, memory: &mut Bus) -> u16 {
-	memory.read(post_inc!(self.reg_pc)) as u16
+    fn zero_page(&mut self, bus: &mut Bus) -> u16 {
+	bus.read(post_inc!(self.reg_pc)) as u16
     }
 
     /// indexed (by X) zero page addressing mode resolution
-    fn zero_page_x(&mut self, memory: &mut Bus) -> u16 {
+    fn zero_page_x(&mut self, bus: &mut Bus) -> u16 {
 	// Note: If we have LDA $80,X with X = $FF then memory location will be
 	// $7F and NOT $017F.
 	// Example: LDA $20,X
-	memory.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16
+	bus.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_x) as u16
+    }
+
+    fn zero_page_y(&mut self, bus: &mut Bus) -> u16 {
+	bus.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_y) as u16
     }
 
     /* Utilities for manipulating the status register */
