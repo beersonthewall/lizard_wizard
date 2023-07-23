@@ -831,7 +831,9 @@ impl Cpu {
     }
 
     fn cmp(&mut self, fst: u8, snd: u8) {
-	self.set_zn(fst - snd);
+	let tmp = fst as i16 - snd as i16;
+	self.set_z((tmp & 0xFF) as u8);
+	self.set_n((tmp & 0x80) as u8);
 	self.set_c(fst >= snd);
     }
 
