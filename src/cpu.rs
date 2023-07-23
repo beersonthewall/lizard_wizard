@@ -103,7 +103,7 @@ impl Cpu {
 	self.reg_pc = new_pc;
     }
 
-    pub fn step(&mut self, memory: &mut Bus) -> Result<(), EmuErr> {
+    pub fn step(&mut self, memory: &mut Bus) -> Result<bool, EmuErr> {
 	if self.cycles == 0 {
 	    if let Some(kind) = self.interrupt {
 		self.execute_interrupt(kind, memory);
@@ -114,14 +114,16 @@ impl Cpu {
 	    let msd: usize = ((opcode >> 4) & 0xF) as usize;
 	    let instruction = &OPCODES[msd][lsd];
 	    self.cycles += instruction.cycles as usize;
-	    self.execute(*instruction, memory)?;
+	    if self.execute(*instruction, memory)? {
+		return Ok(true);
+	    }
 	}
 
 	self.cycles -= 1;
-	Ok(())
+	Ok(false)
     }
 
-    fn execute(&mut self, instruction: I, bus: &mut Bus) -> Result<(), EmuErr> {
+    fn execute(&mut self, instruction: I, bus: &mut Bus) -> Result<bool, EmuErr> {
 	println!("{:?}", instruction);
 	match instruction {
 	    /* logical and arithmetic instructions */
@@ -780,10 +782,12 @@ impl Cpu {
 	    
 	    /* illegal opcodes (unimplemented for now) */
 
+	    I{ opcode: Op::KIL, .. } => return Ok(true),
+
 	    /* catch all */
 	    _ => return Err(EmuErr::UnrecognizedOpCode(0x0)),
 	}
-	Ok(())
+	Ok(false)
     }
 
     fn ora(&mut self, location: u16, bus: &mut Bus) {

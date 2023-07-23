@@ -25,13 +25,15 @@ impl Emulator {
     pub fn run<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {
 	self.bus.load();
 	self.cpu.reset(&mut self.bus);
-	loop {
+	let mut exit = false;
+	while !exit {
 	    // 3 ppu ticks per cpu cycle
 /*	    self.ppu.step(&mut self.bus)?;
 	    self.ppu.step(&mut self.bus)?;
 	    self.ppu.step(&mut self.bus)?;*/
 
-	    self.cpu.step(&mut self.bus)?;
+	    exit = self.cpu.step(&mut self.bus)?;
 	}
+	Ok(())
     }
 }
