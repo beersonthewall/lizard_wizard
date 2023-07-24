@@ -2,6 +2,8 @@ from bs4 import BeautifulSoup
 
 inputPath = "./opcodes.html"
 
+# Codegen for rust opcode table: transforms the HTML table
+# seen at: http://www.oxyron.de/html/opcodes02.html
 def main():
     with open(inputPath, "r") as f:
         html = f.read()
