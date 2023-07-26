@@ -5,21 +5,14 @@ use super::cpu::Cpu;
 use super::err::EmuErr;
 use super::ppu::Ppu;
 
+#[derive(Default)]
 pub struct Emulator {
     cpu: Cpu,
     bus: Bus,
     ppu: Ppu,
 }
 
-impl std::default::Default for Emulator {
-    fn default() -> Self {
-	Self {
-	    cpu: Cpu::default(),
-	    bus: Bus::default(),
-	    ppu: Ppu::default(),
-	}
-    }
-}
+
 
 impl Emulator {
     pub fn run<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {

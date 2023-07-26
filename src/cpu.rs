@@ -2,6 +2,7 @@ use super::err::EmuErr;
 use super::bus::Bus;
 use super::opcodes::{OPCODES,I,AM,Op};
 
+#[derive(Default)]
 pub struct Cpu {
     // Registers
     reg_pc: u16,
@@ -16,22 +17,7 @@ pub struct Cpu {
     interrupt: Option<Interrupt>,
 }
 
-impl std::default::Default for Cpu {
-    fn default() -> Self {
-	Self {
-	    reg_pc: 0,
-	    reg_sp: 0,
-	    reg_x: 0,
-	    reg_y: 0,
-	    reg_a: 0,
-	    reg_p: 0,
 
-	    cycles: 0,
-
-	    interrupt: None,
-	}
-    }
-}
 
 /// Macro rule to implement post-increment for a mutable expression.
 macro_rules! post_inc {
@@ -951,8 +937,8 @@ impl Cpu {
     /// pulls a value off the top of the stack
     fn pull(&mut self, memory: &mut Bus) -> u8 {
 	self.reg_sp += 1;
-	let val = memory.read(0x100 | self.reg_sp as u16);
-	val
+	
+	memory.read(0x100 | self.reg_sp as u16)
     }
 
     /// BPL, BMI, BVC, BCC, BCS, BNE, BEQ
@@ -1095,10 +1081,5 @@ impl Cpu {
 	} else {
 	    self.reg_p &= !Self::INTERRUPT_DISABLE;
 	}
-    }
-
-    fn compare(&mut self, fst: u8, snd: u8) {
-	self.set_zn(fst - snd);
-	self.set_c(fst >= snd);
     }
 }

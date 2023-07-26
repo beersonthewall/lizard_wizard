@@ -1,5 +1,5 @@
+use crate::mapper::Mapper;
 use crate::cartridge::Cartridge;
-use super::Mapper;
 
 pub struct MapperNROM {
     cartridge: Cartridge,

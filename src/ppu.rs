@@ -5,7 +5,7 @@ use super::bus::Bus;
 const PPU_ADDR_SPACE_SZ: usize = 2_000;
 
 pub struct Ppu {
-    addr_space: Vec<u8>,
+    _addr_space: Vec<u8>,
 }
 
 #[allow(dead_code)]
@@ -41,7 +41,7 @@ impl Ppu {
 impl std::default::Default for Ppu {
     fn default() -> Self {
 	Ppu {
-	    addr_space: vec![0;PPU_ADDR_SPACE_SZ],
+	    _addr_space: vec![0;PPU_ADDR_SPACE_SZ],
 	}
     }
 }
