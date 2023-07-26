@@ -681,6 +681,7 @@ impl Cpu {
 
 	    // BVS
 	    I{ opcode: Op::BVS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.v() != 0, bus),
+	    I{ opcode: Op::BCC, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.c() == 0, bus),
 
 	    // BCS
 	    I{ opcode: Op::BCS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.c() != 0, bus),
