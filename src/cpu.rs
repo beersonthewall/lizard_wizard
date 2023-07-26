@@ -373,7 +373,7 @@ impl Cpu {
 
 	    // DEY
 	    I{ opcode: Op::DEY, addr_mode: AM::IMP, ..} => {
-		self.reg_y -= 1;
+		self.reg_y = self.reg_y.wrapping_sub(1);
 		self.set_zn(self.reg_y);
 	    },
 
@@ -397,13 +397,13 @@ impl Cpu {
 
 	    // INX
 	    I{ opcode: Op::INX, addr_mode: AM::IMP, ..} => {
-		self.reg_x += 1;
+		self.reg_x = self.reg_x.wrapping_add(1);
 		self.set_zn(self.reg_x);
 	    },
 
 	    // INY
 	    I{ opcode: Op::INY, addr_mode: AM::IMP, ..} => {
-		self.reg_y += 1;
+		self.reg_y = self.reg_y.wrapping_add(1);
 		self.set_zn(self.reg_y);
 	    },
 
