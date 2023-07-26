@@ -64,6 +64,11 @@ impl Cpu {
     /// - sets initial stack pointer to 0xFD
     pub fn reset(&mut self, bus: &mut Bus) {
 	self.reg_pc = bus.read_u16(Self::RESET_VECTOR);
+	println!("reset PC: 0x{:x}", self.reg_pc);
+	// For testrom.nes automated mode (e.g. no graphics implemented yet)
+	// This was quite annoying when I kept seeing 0xc004 read from the reset vector
+	// but other places saying the test should start at 0xc000 :(.
+	self.reg_pc = 0xc000;
 	self.set_i(true);
 	self.reg_sp = Self::INITIAL_SP;
 	self.reg_a = 0;
@@ -73,7 +78,7 @@ impl Cpu {
     }
 
     #[allow(dead_code)]
-    pub fn interrupt(&mut self, kind: Interrupt, memory: &mut Bus) {
+    pub fn interrupt(&mut self, kind: Interrupt) {
 	self.interrupt = Some(kind);
     }
 
@@ -103,18 +108,18 @@ impl Cpu {
 	self.reg_pc = new_pc;
     }
 
-    pub fn step(&mut self, memory: &mut Bus) -> Result<bool, EmuErr> {
+    pub fn step(&mut self, bus: &mut Bus) -> Result<bool, EmuErr> {
 	if self.cycles == 0 {
 	    if let Some(kind) = self.interrupt {
-		self.execute_interrupt(kind, memory);
+		self.execute_interrupt(kind, bus);
 	    }
 
-	    let opcode: u8 = memory.read(post_inc!(self.reg_pc));
+	    let opcode: u8 = bus.read(post_inc!(self.reg_pc));
 	    let lsd: usize = (opcode & 0x0F) as usize;
 	    let msd: usize = ((opcode >> 4) & 0xF) as usize;
 	    let instruction = &OPCODES[msd][lsd];
 	    self.cycles += instruction.cycles as usize;
-	    if self.execute(*instruction, memory)? {
+	    if self.execute(*instruction, bus)? {
 		return Ok(true);
 	    }
 	}
