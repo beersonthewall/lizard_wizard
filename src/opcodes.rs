@@ -1,6 +1,7 @@
 
 /// 6502 Opcodes
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::upper_case_acronyms)] // I happen to think uppercase enum variants look better :)
 pub enum Op {
     ADC,
     AND,
@@ -58,7 +59,7 @@ pub enum Op {
     TXA,
     TXS,
     TYA,
-    XXX, // Illegal instruction
+    _XXX, // Illegal instruction
 
     // Unofficial Opcodes
     AHX,
@@ -97,6 +98,7 @@ pub enum Op {
 /// - ZPX: zero page indexed by X. val = PEEK((arg + X) % 256)
 /// - ZPY: zero page indexed by Y. val = PEEK((arg + Y) % 256)
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum AM {
     ABS,
     ABX,
