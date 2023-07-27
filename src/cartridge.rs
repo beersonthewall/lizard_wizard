@@ -55,7 +55,6 @@ impl Cartridge {
 	let mapper_hi_nibble = control_byte_2 >> 4;
 	let mapper_byte = (mapper_hi_nibble << 4) | mapper_lo_nibble;
 	let mapper = MapperType::try_from(mapper_byte)?;
-	println!("mapper: {:?}", mapper);
 	// Find sizes of prg_rom and chr_rom in the header
 	// pg rom_sz is the number of 16KB ROM Banks
 	let prg_rom_sz = header[4] as usize;
@@ -68,8 +67,6 @@ impl Cartridge {
 	let mut chr_rom = vec![0;chr_rom_sz];
 
 	file.read_exact(&mut prg_rom).map_err(EmuErr::ReadRom)?;
-	let addr = (0xFFFC - 0x8000) % 0x4000;
-	println!("What's at the reset vec? 0x{:x}, 0x{:x}", prg_rom[addr], prg_rom[addr+1]);
 	file.read_exact(&mut chr_rom).map_err(EmuErr::ReadRom)?;
 
 	Ok(Self {

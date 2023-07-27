@@ -53,7 +53,6 @@ impl Bus {
 	    Self::EXPANSION_START..=Self::EXPANSION_END => todo!("cartridge expansion rom"),
 	    Self::PRG_ROM_START..=Self::PRG_ROM_END => {
 		if let Some(m) = &self.mapper {
-		    println!("read prg addr: {:x}", addr);
 		    m.read_prg_rom(addr)
 		} else {
 		    panic!("No mapper");

@@ -17,7 +17,9 @@ pub struct Emulator {
 impl Emulator {
     pub fn run<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {
 	self.bus.load_rom(rom_path)?;
+	self.cpu.power_on();
 	self.cpu.reset(&mut self.bus);
+
 	let mut exit = false;
 	while !exit {
 	    // 3 ppu ticks per cpu cycle

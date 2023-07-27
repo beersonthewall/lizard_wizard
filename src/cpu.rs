@@ -2,7 +2,6 @@ use super::err::EmuErr;
 use super::bus::Bus;
 use super::opcodes::{OPCODES,I,AM,Op};
 
-#[derive(Default)]
 pub struct Cpu {
     // Registers
     reg_pc: u16,
@@ -12,12 +11,43 @@ pub struct Cpu {
     reg_a: u8,
     reg_p: u8,
 
-    cycles: usize,
+    // Flags: carry, zero, interrupt disable, decimal, overflow, and negative
+    flag_c: bool,
+    flag_z: bool,
+    flag_i: bool,
+    flag_d: bool,
+    flag_v: bool,
+    flag_n: bool,
 
+    cycles: usize,
     interrupt: Option<Interrupt>,
+    instruction: Option<I>, // for debugging
 }
 
+impl std::default::Default for Cpu {
 
+    fn default() -> Self {
+	Self {
+	    reg_pc: Self::RESET_VECTOR,
+	    reg_a: 0,
+	    reg_x: 0,
+	    reg_y: 0,
+	    reg_p: 0x00,
+
+	    flag_c: false,
+	    flag_z: false,
+	    flag_i: false,
+	    flag_d: false,
+	    flag_v: false,
+	    flag_n: false,
+	    
+	    reg_sp: Self::INITIAL_SP,
+	    cycles: 0,
+	    interrupt: None,
+	    instruction: None,
+	}
+    }
+}
 
 /// Macro rule to implement post-increment for a mutable expression.
 macro_rules! post_inc {
@@ -43,6 +73,17 @@ impl Cpu {
     const RESET_VECTOR: u16 = 0xFFFC;
     const INITIAL_SP: u8 = 0xFD;
 
+    /// Sets power up state
+    pub fn power_on(&mut self) {
+	self.reg_a = 0;
+	self.reg_x = 0;
+	self.reg_y = 0;
+	self.reg_p = 0x20;
+	self.split_flags();
+	self.reg_sp = Self::INITIAL_SP;
+	self.reg_pc = Self::RESET_VECTOR;
+    }
+
     /// 6502 CPU reset
     ///
     /// - sets pc to 0xFFFC
@@ -50,17 +91,48 @@ impl Cpu {
     /// - sets initial stack pointer to 0xFD
     pub fn reset(&mut self, bus: &mut Bus) {
 	self.reg_pc = bus.read_u16(Self::RESET_VECTOR);
-	println!("reset PC: 0x{:x}", self.reg_pc);
 	// For testrom.nes automated mode (e.g. no graphics implemented yet)
 	// This was quite annoying when I kept seeing 0xc004 read from the reset vector
 	// but other places saying the test should start at 0xc000 :(.
-	self.reg_pc = 0xc000;
-	self.set_i(true);
+	//self.reg_pc = 0xc000;
+
 	self.reg_sp = Self::INITIAL_SP;
 	self.reg_a = 0;
 	self.reg_x = 0;
 	self.reg_y = 0;
+	self.flag_i = true;
 	self.cycles = 0;
+    }
+
+    fn join_flags(&mut self) {
+	self.flag_c = self.reg_p & 1 == 1;
+	self.flag_z = (self.reg_p >> 1) & 1 == 1;
+	self.flag_i = (self.reg_p >> 2) & 1 == 1;
+	self.flag_d = (self.reg_p >> 3) & 1 == 1;
+	self.flag_v = (self.reg_p >> 6) & 1 == 1;
+	self.flag_n = (self.reg_p >> 7) & 1 == 1;
+    }
+
+    fn split_flags(&mut self) {
+	self.reg_p = 0x20;
+	if self.flag_c { self.reg_p |= 0x01; }
+	if self.flag_z { self.reg_p |= 0x02; }
+	if self.flag_i { self.reg_p |= 0x04; }
+	if self.flag_d { self.reg_p |= 0x08; }
+	if self.flag_v { self.reg_p |= 0x40; }
+	if self.flag_n { self.reg_p |= 0x80; }
+    }
+
+    pub fn state(&self) -> String {
+	format!("PC:{:X} A:{:X} X:{:X} Y{:X} P:{:X} SP:{:X}, I:{:?}",
+		self.reg_pc,
+		self.reg_a,
+		self.reg_x,
+		self.reg_y,
+		self.reg_p,
+		self.reg_sp,
+		self.instruction,
+	)
     }
 
     #[allow(dead_code)]
@@ -75,15 +147,16 @@ impl Cpu {
     /// - picks interrupt vector
     /// - sets pc to that vector
     fn execute_interrupt(&mut self, kind: Interrupt, memory: &mut Bus) {
-	if !matches!(kind, Interrupt::Nmi) && self.i() {
+	if !matches!(kind, Interrupt::Nmi) && self.flag_i {
 	    return;
 	}
 
 	self.push((self.reg_pc >> 8) as u8, memory);
 	self.push(self.reg_pc as u8, memory);
+	self.join_flags();
 	self.push(self.reg_p, memory);
 
-	self.set_i(true);
+	self.flag_i = true;
 
 	let addr = match kind {
 	    Interrupt::Nmi => 0xFFFE,
@@ -104,6 +177,7 @@ impl Cpu {
 	    let lsd: usize = (opcode & 0x0F) as usize;
 	    let msd: usize = ((opcode >> 4) & 0xF) as usize;
 	    let instruction = &OPCODES[msd][lsd];
+	    self.instruction = Some(*instruction);
 	    self.cycles += instruction.cycles as usize;
 	    if self.execute(*instruction, bus)? {
 		return Ok(true);
@@ -657,40 +731,52 @@ impl Cpu {
 	    I{ opcode: Op::TXS, addr_mode: AM::IMP, ..} => self.reg_sp = self.reg_x,
 
 	    // PLA
-	    I{ opcode: Op::PLA, addr_mode: AM::IMP, ..} => self.reg_a = self.pull(bus),
+	    I{ opcode: Op::PLA, addr_mode: AM::IMP, ..} => {
+		self.reg_a = self.pull(bus);
+		self.set_zn(self.reg_a);
+	    },
 
 	    // PHA
 	    I{ opcode: Op::PHA, addr_mode: AM::IMP, ..} => self.push(self.reg_a, bus),
 
+	    // See: https://www.nesdev.org/wiki/Status_flags#The_B_flag
+	    // for PLP / PHP details.
+
 	    // PLP
-	    I{ opcode: Op::PLP, addr_mode: AM::IMP, ..} => self.reg_p = self.pull(bus),
+	    I{ opcode: Op::PLP, addr_mode: AM::IMP, ..} => {
+		self.reg_p = self.pull(bus);
+		self.split_flags();
+	    },
 
 	    // PHP
-	    I{ opcode: Op::PHP, addr_mode: AM::IMP, ..} => self.push(self.reg_p, bus),
+	    I{ opcode: Op::PHP, addr_mode: AM::IMP, ..} => {
+		self.join_flags();
+		self.push(self.reg_p | 0x10, bus);
+	    },
 
 	    /* jump/flag instructions */
 
 	    // BPL
-	    I{ opcode: Op::BPL, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.n() == 0, bus),
+	    I{ opcode: Op::BPL, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_n, bus),
 
 	    // BMI
-	    I{ opcode: Op::BMI, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.n() != 0, bus),
+	    I{ opcode: Op::BMI, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_n, bus),
 
 	    // BVC
-	    I{ opcode: Op::BVC, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.v() == 0, bus),
+	    I{ opcode: Op::BVC, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_v, bus),
 
 	    // BVS
-	    I{ opcode: Op::BVS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.v() != 0, bus),
-	    I{ opcode: Op::BCC, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.c() == 0, bus),
+	    I{ opcode: Op::BVS, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_v, bus),
+	    I{ opcode: Op::BCC, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_c, bus),
 
 	    // BCS
-	    I{ opcode: Op::BCS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.c() != 0, bus),
+	    I{ opcode: Op::BCS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_c, bus),
 
 	    // BNE
-	    I{ opcode: Op::BNE, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() == 0, bus),
+	    I{ opcode: Op::BNE, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_z, bus),
 
 	    // BEQ
-	    I{ opcode: Op::BEQ, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.z() != 0, bus),
+	    I{ opcode: Op::BEQ, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_z, bus),
 	    
 	    // BRK
 	    I{ opcode: Op::BRK, addr_mode: AM::IMP, ..} => self.execute_interrupt(Interrupt::Brk, bus),
@@ -698,6 +784,7 @@ impl Cpu {
 	    // RTI
 	    I{ opcode: Op::RTI, addr_mode: AM::IMP, ..} => {
 		self.reg_p = self.pull(bus);
+		self.split_flags();
 		let pc_lo = self.pull(bus) as u16;
 		let pc_hi = self.pull(bus) as u16;
 		self.reg_pc = pc_hi << 8 | pc_lo;
@@ -753,25 +840,30 @@ impl Cpu {
 	    },
 
 	    // CLC
-	    I{ opcode: Op::CLC, addr_mode: AM::IMP, ..} => self.set_c(false),
+	    I{ opcode: Op::CLC, addr_mode: AM::IMP, ..} => self.flag_c = false,
 
 	    // SEC
-	    I{ opcode: Op::SEC, addr_mode: AM::IMP, ..} => self.set_c(true),
+	    I{ opcode: Op::SEC, addr_mode: AM::IMP, ..} => self.flag_c = true,
+
+	    /*
+	    NOTE: CLD & SED have no actual affect. The decimal flag has no effect on the NES
+	    and accordingly also does nothing in this emulator. The flags are still changed in P
+	    to pass the cpu test rom checks.
+	     */
 
 	    // CLD
-	    I{ opcode: Op::CLD, addr_mode: AM::IMP, ..} => {}, // decimal flag is disabled on NES
-
+	    I{ opcode: Op::CLD, addr_mode: AM::IMP, ..} => self.flag_d = false, 
 	    // SED
-	    I{ opcode: Op::SED, addr_mode: AM::IMP, ..} => {}, // decimal flag is disabled on NES
+	    I{ opcode: Op::SED, addr_mode: AM::IMP, ..} => self.flag_d = true, 
 
 	    // CLI
-	    I{ opcode: Op::CLI, addr_mode: AM::IMP, ..} => self.set_i(false),
+	    I{ opcode: Op::CLI, addr_mode: AM::IMP, ..} => self.flag_i = false,
 
 	    // SEI
-	    I{ opcode: Op::SEI, addr_mode: AM::IMP, ..} => self.set_i(true),
+	    I{ opcode: Op::SEI, addr_mode: AM::IMP, ..} => self.flag_i = true,
 
 	    // CLV
-	    I{ opcode: Op::CLV, addr_mode: AM::IMP, ..} => self.set_v(false),
+	    I{ opcode: Op::CLV, addr_mode: AM::IMP, ..} => self.flag_v = false,
 
 	    // NOP
 	    I{ opcode: Op::NOP, addr_mode: AM::IMP, ..} => {},
@@ -792,7 +884,7 @@ impl Cpu {
     }
 
     fn and(&mut self, location: u16, bus: &mut Bus) {
-	self.reg_a |= bus.read(location);
+	self.reg_a &= bus.read(location);
 	self.set_zn(self.reg_a);
     }
 
@@ -802,13 +894,10 @@ impl Cpu {
     }
 
     fn adc(&mut self, location: u16, bus: &mut Bus) {
-	let carry = self.reg_p & 1;
-	let (intermediate, o1) = bus.read(location).overflowing_add(carry);
+	let (intermediate, o1) = bus.read(location).overflowing_add(self.flag_c as u8);
 	let (result, o2) = self.reg_a.overflowing_add(intermediate);
 	// Overflow
-	if o1 || o2 {
-	    self.reg_p |= Self::CARRY;
-	}
+	self.flag_v = o1 || o2;
 	self.reg_a = result;
 	self.set_zn(self.reg_a);
     }
@@ -816,90 +905,85 @@ impl Cpu {
     fn sbc(&mut self, location: u16, bus: &mut Bus) {
 	let data = bus.read(location);
 	let (intermediate, o1) = self.reg_a.overflowing_sub(data);
-	let (result, o2) = intermediate.overflowing_sub(1 - (self.reg_p & Self::CARRY));
-	if o1 || o2 {
-	    self.reg_p &= !Self::CARRY;
-	}
+	let (result, o2) = intermediate.overflowing_sub(1 - self.flag_c as u8);
+	self.flag_v = o1 || o2;
 	self.reg_a = result;
     }
 
     fn cmp(&mut self, fst: u8, snd: u8) {
 	let tmp = fst as i16 - snd as i16;
-	self.set_z((tmp & 0xFF) as u8);
+	self.flag_z = (tmp & 0xFF) as u8 == 0;
 	self.set_n((tmp & 0x80) as u8);
-	self.set_c(fst >= snd);
+	self.flag_c = fst >= snd;
     }
 
     fn dec(&mut self, location: u16, bus: &mut Bus) {
 	let result = bus.read(location).wrapping_sub(1);
-	self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
 	self.set_zn(result);
     }
 
     fn inc(&mut self, location: u16, bus: &mut Bus) {
 	let result = bus.read(location).wrapping_add(1);
-	self.reg_p |= result & (1 << 7) | if result == 0 { 1 } else { 0 };
 	self.set_zn(result);
     }
 
     fn asl_acc(&mut self) {
-	self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
+	self.flag_c = (self.reg_a >> 7) & Self::CARRY > 0;
 	self.reg_a <<= 1;
 	self.set_zn(self.reg_a);
     }
 
     fn asl(&mut self, location: u16, bus: &mut Bus) {
 	let m = bus.read(location);
-	self.set_c((m >> 7) & Self::CARRY > 0);
+	self.flag_c = (m >> 7) & Self::CARRY > 0;
 	let m = m << 1;
 	bus.write(location, m);
 	self.set_zn(m);
     }
 
     fn rol_acc(&mut self) {
-	let carry = self.c();
-	self.set_c((self.reg_a >> 7) & Self::CARRY > 0);
+	let carry = self.flag_c as u8;
+	self.flag_c = (self.reg_a >> 7) & Self::CARRY > 0;
 	self.reg_a = (self.reg_a >> 1) | (carry << 7);
 	self.set_zn(self.reg_a);
     }
 
     fn rol(&mut self, location: u16, bus: &mut Bus) {
-	let carry = self.c();
+	let carry = self.flag_c as u8;
 	let m = bus.read(location);
-	self.set_c((m >> 7) & Self::CARRY > 0);
+	self.flag_c = (m >> 7) & Self::CARRY > 0;
 	let m = (m >> 1)| (carry << 7);
 	bus.write(location, m);
 	self.set_zn(m);
     }
 
     fn lsr_acc(&mut self) {
-	self.set_c(self.reg_a & Self::CARRY > 0);
+	self.flag_c = self.reg_a & Self::CARRY > 0;
 	self.reg_a >>= 1;
 	self.set_zn(self.reg_a);
     }
 
     fn lsr(&mut self, location: u16, bus: &mut Bus) {
 	let m = bus.read(location);
-	self.set_c(m & Self::CARRY > 0);
+	self.flag_c = m & Self::CARRY > 0;
 	let m = m >> 1;
 	bus.write(location, m);
 	self.set_zn(m);
     }
 
     fn ror_acc(&mut self) {
-	let old_zero_bit: u8 = self.reg_a & 1;
+	let old_zero_bit = self.reg_a & 1 == 1;
 	self.reg_a >>= 1;
-	self.reg_a |= self.reg_p & (1 << 6);
-	self.reg_p |= old_zero_bit;
+	self.reg_a = (self.reg_a >> 1) | ((self.flag_c as u8) << 7);
+	self.flag_z = old_zero_bit;
 	self.set_zn(self.reg_a);
     }
 
     fn ror(&mut self, location: u16, bus: &mut Bus) {
 	let mut m = bus.read(location);
-	let old_zero_bit: u8 = m & 1;
-	m >>= 1;
-	m |= self.reg_p & (1 << 6);
-	self.reg_p |= old_zero_bit;
+	let old_zero_bit = m & 1 == 1;
+	m = (m >> 1) | ((self.flag_c as u8) << 7);
+	self.flag_z = old_zero_bit;
 	self.set_zn(m);
     }
 
@@ -924,22 +1008,21 @@ impl Cpu {
 
     fn bit(&mut self, location: u16, bus: &mut Bus) {
 	let m = bus.read(location);
-	self.set_v((m >> 6) & 1 > 0);
-	self.set_z(m & self.reg_a);
+	self.flag_v = (m >> 6) & 1 > 0;
+	self.flag_z = (m & self.reg_a) == 0;
 	self.set_n(m);
     }
 
     /// pushes a value onto the stack
-    fn push(&mut self, val: u8, memory: &mut Bus) {
-	memory.write(0x100 | self.reg_sp as u16, val);
+    fn push(&mut self, val: u8, bus: &mut Bus) {
+	bus.write(0x100 | self.reg_sp as u16, val);
 	self.reg_sp -= 1;
     }
 
     /// pulls a value off the top of the stack
-    fn pull(&mut self, memory: &mut Bus) -> u8 {
+    fn pull(&mut self, bus: &mut Bus) -> u8 {
 	self.reg_sp += 1;
-	
-	memory.read(0x100 | self.reg_sp as u16)
+	bus.read(0x100 | self.reg_sp as u16)
     }
 
     /// BPL, BMI, BVC, BCC, BCS, BNE, BEQ
@@ -1006,81 +1089,109 @@ impl Cpu {
 	bus.read(post_inc!(self.reg_pc)).wrapping_add(self.reg_y) as u16
     }
 
-    /* Utilities for manipulating the status register */
-
-    // FIXME: standardize the CPU flags. Should the accessors return bool or u8?
-
-    // status register masks
     const CARRY: u8 = 1;
-    const ZERO: u8 = 1 << 1;
-    const INTERRUPT_DISABLE: u8 = 1 << 2;
-    const _BREAK_CMD: u8 = 1 << 4;
-    const OVERFLOW: u8 = 1 << 6;
-    const NEGATIVE: u8 = 1 << 7;
-
-    fn c(&self) -> u8 {
-	self.reg_p & Self::CARRY
-    }
-
-    fn v(&self) -> u8 {
-	self.reg_p & Self::OVERFLOW
-    }
-
-    fn z(&self) -> u8 {
-	self.reg_p & Self::ZERO
-    }
-
-    fn n(&self) -> u8 {
-	self.reg_p & Self::NEGATIVE
-    }
-
-    fn i(&self) -> bool {
-	self.reg_p & Self::INTERRUPT_DISABLE > 0
-    }
-
-    fn set_c(&mut self, c: bool) {
-	if c {
-	    self.reg_p |= Self::CARRY;
-	} else {
-	    self.reg_p &= !Self::CARRY;
-	}
-    }
 
     fn set_zn(&mut self, val: u8) {
-	self.set_z(val);
+	self.flag_z = val == 0;
 	self.set_n(val);
     }
 
     fn set_n(&mut self, val: u8) {
-	let negative = ((val >> 7) & 1) > 0;
-	if negative {
-	    self.reg_p |= Self::NEGATIVE;
-	} else {
-	    self.reg_p &= !Self::NEGATIVE;
+	self.flag_n = ((val >> 7) & 1) > 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bus::Bus;
+    use std::io::Read;
+    use super::*;
+
+    fn typ<T>(_:&T) {
+	println!("{}", std::any::type_name::<T>());
+    }
+
+    struct Log {
+	addr: u16,
+	reg_a: u8,
+	reg_x: u8,
+	reg_y: u8,
+	reg_p: u8,
+	reg_sp: u8,
+    }
+
+    fn parse_log_line(line: &str) -> Log {
+	let addr = u16::from_str_radix(& line[0..4], 16).unwrap();
+	let reg_a = u8::from_str_radix(&line[50..52], 16).unwrap();
+	let reg_x = u8::from_str_radix(&line[55..57], 16).unwrap();
+	let reg_y = u8::from_str_radix(&line[60..62], 16).unwrap();
+	let reg_p = u8::from_str_radix(&line[65..67], 16).unwrap();
+	let reg_sp = u8::from_str_radix(&line[71..73], 16).unwrap();
+
+	Log {
+	    addr,
+	    reg_a,
+	    reg_x,
+	    reg_y,
+	    reg_p,
+	    reg_sp,
 	}
     }
 
-    fn set_z(&mut self, val: u8) {
-	if val == 0 {
-	    self.reg_p |= Self::ZERO;
-	} else {
-	    self.reg_p &= !Self::ZERO;
-	}
+    fn check_status(expected: u8, cpu: &Cpu) {
+	assert_eq!(cpu.flag_c as u8, expected & 1, "carry flag");
+	assert_eq!(cpu.flag_z as u8, (expected >> 1) & 1, "zero flag");
+	assert_eq!(cpu.flag_i as u8, (expected >> 2) & 1, "interrupt disable flag");
+	assert_eq!(cpu.flag_d as u8, (expected >> 3) & 1, "decimal flag");
+	assert_eq!(cpu.flag_v as u8, (expected >> 6) & 1, "overflow flag");
+	assert_eq!(cpu.flag_n as u8, (expected >> 7) & 1, "negative flag");
     }
 
-    fn set_v(&mut self, v: bool) {
-	if v {
-	    self.reg_p |= Self::OVERFLOW;
-	} else {
-	    self.reg_p &= !Self::OVERFLOW;
-	}
-    }
+    /// Runs a test rom and compares the actual execution log
+    /// against the expected execution log.
+    #[test]
+    fn test_rom() {
+	let test_rom = "testrom.nes";
+	let test_log = "nestest.log";
 
-    fn set_i(&mut self, d: bool) {
-	if d {
-	    self.reg_p |= Self::INTERRUPT_DISABLE;
-	} else {
-	    self.reg_p &= !Self::INTERRUPT_DISABLE;
+	let mut bus = Bus::default();
+	let mut cpu = Cpu::default();
+
+	cpu.power_on();
+	bus.load_rom(test_rom).unwrap();
+	cpu.reset(&mut bus);
+
+	// Use the test rom's automated suite which starts at 0xc000
+	cpu.reg_pc = 0xc000;
+
+	let mut fd = std::fs::File::open(test_log).unwrap();
+	let mut logs = String::new();
+	fd.read_to_string(&mut logs).unwrap();
+
+	let mut end = false;
+	for l in logs.lines() {
+	    let state = parse_log_line(l);
+	    println!("actual cpu: {}", cpu.state());
+	    let clean: Vec<_> = l.split_whitespace().collect();
+	    println!("log line: {}", clean.join(" "));
+	    assert_eq!(state.addr, cpu.reg_pc,
+		       "PC expected {:x}, actual {:x}", state.addr, cpu.reg_pc);
+	    assert_eq!(state.reg_a, cpu.reg_a,
+		       "reg_a expected {:x}, actual {:x}", state.reg_a, cpu.reg_a);
+	    assert_eq!(state.reg_x, cpu.reg_x,
+		       "reg_x expected {:x}, actual {:x}", state.reg_x, cpu.reg_x);
+	    assert_eq!(state.reg_y, cpu.reg_y,
+		       "reg_y expected {:x}, actual {:x}", state.reg_y, cpu.reg_y);
+	    check_status(state.reg_p, &cpu);
+	    assert_eq!(state.reg_sp, cpu.reg_sp,
+		       "reg_sp expected {:x}, actual {:x}", state.reg_sp, cpu.reg_sp);
+	    // TODO: assert that the isntructions match.
+	    // maybe unnecessary since we check register state?
+	    end = cpu.step(&mut bus).unwrap();
+	    // tick down cycle stall
+	    while cpu.cycles > 0 {
+		end = cpu.step(&mut bus).unwrap();
+	    }
 	}
     }
 }
