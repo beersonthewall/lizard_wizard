@@ -1472,6 +1472,9 @@ mod tests {
 
     /// Runs a test rom and compares the actual execution log
     /// against the expected execution log.
+    ///
+    /// NB: Doesn't assert cycle counts. Still need to implement
+    /// condition cycle counting for some instructions.
     #[test]
     fn test_rom() {
 	let test_rom = "testrom.nes";
@@ -1491,7 +1494,6 @@ mod tests {
 	let mut logs = String::new();
 	fd.read_to_string(&mut logs).unwrap();
 
-	let mut end = false;
 	for l in logs.lines() {
 	    let state = parse_log_line(l);
 	    println!("actual cpu: {}", cpu.state());
@@ -1510,14 +1512,13 @@ mod tests {
 	    assert_eq!(state.reg_sp, cpu.reg_sp,
 		       "reg_sp expected {:x}, actual {:x}", state.reg_sp, cpu.reg_sp);
 
-	    end = cpu.step(&mut bus).unwrap();
+	    assert!(!cpu.step(&mut bus).unwrap());
 	    // tick down cycle stall
 	    while cpu.cycles > 0 {
-		end = cpu.step(&mut bus).unwrap();
-		assert!(!end);
+		assert!(!cpu.step(&mut bus).unwrap());
 	    }
 	}
 	// The test does not actually end with a kill instruction,
-	// so no assert!(end) can be checked.
+	// so no assert that the CPU exits.
     }
 }
