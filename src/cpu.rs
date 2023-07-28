@@ -94,26 +94,18 @@ impl Cpu {
 	// For testrom.nes automated mode (e.g. no graphics implemented yet)
 	// This was quite annoying when I kept seeing 0xc004 read from the reset vector
 	// but other places saying the test should start at 0xc000 :(.
-	//self.reg_pc = 0xc000;
+	self.reg_pc = 0xc000;
 
 	self.reg_sp = Self::INITIAL_SP;
 	self.reg_a = 0;
 	self.reg_x = 0;
 	self.reg_y = 0;
 	self.flag_i = true;
+	self.join_flags();
 	self.cycles = 0;
     }
 
     fn join_flags(&mut self) {
-	self.flag_c = self.reg_p & 1 == 1;
-	self.flag_z = (self.reg_p >> 1) & 1 == 1;
-	self.flag_i = (self.reg_p >> 2) & 1 == 1;
-	self.flag_d = (self.reg_p >> 3) & 1 == 1;
-	self.flag_v = (self.reg_p >> 6) & 1 == 1;
-	self.flag_n = (self.reg_p >> 7) & 1 == 1;
-    }
-
-    fn split_flags(&mut self) {
 	self.reg_p = 0x20;
 	if self.flag_c { self.reg_p |= 0x01; }
 	if self.flag_z { self.reg_p |= 0x02; }
@@ -123,7 +115,18 @@ impl Cpu {
 	if self.flag_n { self.reg_p |= 0x80; }
     }
 
-    pub fn state(&self) -> String {
+    fn split_flags(&mut self) {
+	self.flag_c = self.reg_p & 1 == 1;
+	self.flag_z = (self.reg_p >> 1) & 1 == 1;
+	self.flag_i = (self.reg_p >> 2) & 1 == 1;
+	self.flag_d = (self.reg_p >> 3) & 1 == 1;
+	self.flag_v = (self.reg_p >> 6) & 1 == 1;
+	self.flag_n = (self.reg_p >> 7) & 1 == 1;
+    }
+
+    #[allow(dead_code)]
+    pub fn state(&mut self) -> String {
+	self.join_flags();
 	format!("PC:{:X} A:{:X} X:{:X} Y{:X} P:{:X} SP:{:X}, I:{:?}",
 		self.reg_pc,
 		self.reg_a,
@@ -189,7 +192,6 @@ impl Cpu {
     }
 
     fn execute(&mut self, instruction: I, bus: &mut Bus) -> Result<bool, EmuErr> {
-	println!("{:?}", instruction);
 	match instruction {
 	    /* logical and arithmetic instructions */
 
@@ -200,6 +202,10 @@ impl Cpu {
 	    },
 	    I{ opcode: Op::ORA, addr_mode: AM::ZPG, ..} => {
 		let location = self.zero_page(bus);
+		self.ora(location, bus);
+	    },
+	    I{ opcode: Op::ORA, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
 		self.ora(location, bus);
 	    },
 	    I{ opcode: Op::ORA, addr_mode: AM::INX, ..} => {
@@ -763,10 +769,10 @@ impl Cpu {
 	    I{ opcode: Op::BMI, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_n, bus),
 
 	    // BVC
-	    I{ opcode: Op::BVC, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_v, bus),
+	    I{ opcode: Op::BVC, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_v, bus),
 
 	    // BVS
-	    I{ opcode: Op::BVS, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_v, bus),
+	    I{ opcode: Op::BVS, addr_mode: AM::REL, ..} => self.execute_cond_branch(self.flag_v, bus),
 	    I{ opcode: Op::BCC, addr_mode: AM::REL, ..} => self.execute_cond_branch(!self.flag_c, bus),
 
 	    // BCS
@@ -867,13 +873,255 @@ impl Cpu {
 
 	    // NOP
 	    I{ opcode: Op::NOP, addr_mode: AM::IMP, ..} => {},
-	    
-	    /* illegal opcodes (most unimplemented for now) */
+	    I{ opcode: Op::NOP, addr_mode: AM::IMM, ..} => {let _ = post_inc!(self.reg_pc);},
+	    I{ opcode: Op::NOP, addr_mode: AM::ZPG, ..} => {
+		let _ = self.zero_page(bus);
+	    },
+	    I{ opcode: Op::NOP, addr_mode: AM::ZPX, ..} => {
+		let _ = self.zero_page_x(bus);
+	    },
+	    I{ opcode: Op::NOP, addr_mode: AM::ABS, ..} => {
+		let _ = self.absolute(bus);
+	    },
+	    I{ opcode: Op::NOP, addr_mode: AM::ABX, ..} => {
+		let _ = self.absolute_x(bus);
+	    },
+
+	    // LAX
+	    I{ opcode: Op::LAX, addr_mode: AM::IMM, ..} => {
+		let location = post_inc!(self.reg_pc);
+		self.lax(location, bus);
+	    },
+	    I{ opcode: Op::LAX, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.lax(location, bus);
+	    },
+	    I{ opcode: Op::LAX, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.lax(location, bus);
+	    },
+	    I{ opcode: Op::LAX, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.lax(location, bus);
+	    },
+	    I{ opcode: Op::LAX, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.lax(location, bus);
+	    },
+	    I{ opcode: Op::LAX, addr_mode: AM::ZPY, ..} => {
+		let location = self.zero_page_y(bus);
+		self.lax(location, bus);
+	    },
+	    I{ opcode: Op::LAX, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.lax(location, bus);
+	    },
+
+	    // SAX
+	    I{ opcode: Op::SAX, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.sax(location, bus);
+	    },
+	    I{ opcode: Op::SAX, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.sax(location, bus);
+	    },
+	    I{ opcode: Op::SAX, addr_mode: AM::ZPY, ..} => {
+		let location = self.zero_page_y(bus);
+		self.sax(location, bus);
+	    },
+	    I{ opcode: Op::SAX, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.sax(location, bus);
+	    },
+
+	    // DCP
+	    I { opcode: Op::DCP, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.dcp(location, bus);
+	    },
+	    I { opcode: Op::DCP, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.dcp(location, bus);
+	    },
+	    I { opcode: Op::DCP, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.dcp(location, bus);
+	    },
+	    I { opcode: Op::DCP, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.dcp(location, bus);
+	    },
+	    I { opcode: Op::DCP, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.dcp(location, bus);
+	    },
+	    I { opcode: Op::DCP, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.dcp(location, bus);
+	    },
+	    I { opcode: Op::DCP, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.dcp(location, bus);
+	    },
+
+	    // ISC
+	    I{ opcode: Op::ISC, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.isc(location, bus);
+	    },
+	    I{ opcode: Op::ISC, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.isc(location, bus);
+	    },
+	    I{ opcode: Op::ISC, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.isc(location, bus);
+	    },
+	    I{ opcode: Op::ISC, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.isc(location, bus);
+	    },
+	    I{ opcode: Op::ISC, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.isc(location, bus);
+	    },
+	    I{ opcode: Op::ISC, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.isc(location, bus);
+	    },
+	    I{ opcode: Op::ISC, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.isc(location, bus);
+	    },
+
+	    // SLO
+	    I{ opcode: Op::SLO, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.slo(location, bus);
+	    },
+	    I{ opcode: Op::SLO, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.slo(location, bus);
+	    },
+	    I{ opcode: Op::SLO, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.slo(location, bus);
+	    },
+	    I{ opcode: Op::SLO, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.slo(location, bus);
+	    },
+	    I{ opcode: Op::SLO, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.slo(location, bus);
+	    },
+	    I{ opcode: Op::SLO, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.slo(location, bus);
+	    },
+	    I{ opcode: Op::SLO, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.slo(location, bus);
+	    },
+
+	    // RLA
+	    I{ opcode: Op::RLA, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.rla(location, bus);
+	    },
+	    I{ opcode: Op::RLA, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.rla(location, bus);
+	    },
+	    I{ opcode: Op::RLA, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.rla(location, bus);
+	    },
+	    I{ opcode: Op::RLA, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.rla(location, bus);
+	    },
+	    I{ opcode: Op::RLA, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.rla(location, bus);
+	    },
+	    I{ opcode: Op::RLA, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.rla(location, bus);
+	    },
+	    I{ opcode: Op::RLA, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.rla(location, bus);
+	    },
+
+	    // SRE
+	    I{ opcode: Op::SRE, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.sre(location, bus);
+	    },
+	    I{ opcode: Op::SRE, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.sre(location, bus);
+	    },
+	    I{ opcode: Op::SRE, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.sre(location, bus);
+	    },
+	    I{ opcode: Op::SRE, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.sre(location, bus);
+	    },
+	    I{ opcode: Op::SRE, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.sre(location, bus);
+	    },
+	    I{ opcode: Op::SRE, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.sre(location, bus);
+	    },
+	    I{ opcode: Op::SRE, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.sre(location, bus);
+	    },
+
+	    // RRA
+	    I{ opcode: Op::RRA, addr_mode: AM::ZPG, ..} => {
+		let location = self.zero_page(bus);
+		self.rra(location, bus);
+	    },
+	    I{ opcode: Op::RRA, addr_mode: AM::ZPX, ..} => {
+		let location = self.zero_page_x(bus);
+		self.rra(location, bus);
+	    },
+	    I{ opcode: Op::RRA, addr_mode: AM::INX, ..} => {
+		let location = self.indexed_indirect(bus);
+		self.rra(location, bus);
+	    },
+	    I{ opcode: Op::RRA, addr_mode: AM::INY, ..} => {
+		let location = self.indirect_indexed(bus);
+		self.rra(location, bus);
+	    },
+	    I{ opcode: Op::RRA, addr_mode: AM::ABS, ..} => {
+		let location = self.absolute(bus);
+		self.rra(location, bus);
+	    },
+	    I{ opcode: Op::RRA, addr_mode: AM::ABX, ..} => {
+		let location = self.absolute_x(bus);
+		self.rra(location, bus);
+	    },
+	    I{ opcode: Op::RRA, addr_mode: AM::ABY, ..} => {
+		let location = self.absolute_y(bus);
+		self.rra(location, bus);
+	    },
 
 	    I{ opcode: Op::KIL, .. } => return Ok(true),
 
 	    /* catch all */
-	    _ => return Err(EmuErr::UnrecognizedOpCode(0x0)),
+	    _ => {
+		println!("unrecognized instruction {:?}", instruction);
+		return Err(EmuErr::UnrecognizedOpCode(0x0));
+	    },
 	}
 	Ok(false)
     }
@@ -894,20 +1142,24 @@ impl Cpu {
     }
 
     fn adc(&mut self, location: u16, bus: &mut Bus) {
-	let (intermediate, o1) = bus.read(location).overflowing_add(self.flag_c as u8);
-	let (result, o2) = self.reg_a.overflowing_add(intermediate);
+	let operand = bus.read(location);
+	let result: u16 = operand as u16 + self.reg_a as u16 + self.flag_c as u16;
 	// Overflow
-	self.flag_v = o1 || o2;
+	self.flag_c = result & 0x100 > 0;
+	let result = result as u8;
+	self.flag_v = (self.reg_a ^ result) & (operand ^ result) & 0x80 != 0;
 	self.reg_a = result;
 	self.set_zn(self.reg_a);
     }
 
     fn sbc(&mut self, location: u16, bus: &mut Bus) {
-	let data = bus.read(location);
-	let (intermediate, o1) = self.reg_a.overflowing_sub(data);
-	let (result, o2) = intermediate.overflowing_sub(1 - self.flag_c as u8);
-	self.flag_v = o1 || o2;
+	let operand = !bus.read(location); // note: binary not
+	let result: u16 = self.reg_a as u16 + operand as u16 + self.flag_c as u16;
+	self.flag_c = result & 0x100 > 0;
+	let result = result as u8;
+	self.flag_v = (self.reg_a ^ result) & (operand ^ result) & 0x80 != 0;
 	self.reg_a = result;
+	self.set_zn(self.reg_a);
     }
 
     fn cmp(&mut self, fst: u8, snd: u8) {
@@ -919,11 +1171,13 @@ impl Cpu {
 
     fn dec(&mut self, location: u16, bus: &mut Bus) {
 	let result = bus.read(location).wrapping_sub(1);
+	bus.write(location, result);
 	self.set_zn(result);
     }
 
     fn inc(&mut self, location: u16, bus: &mut Bus) {
 	let result = bus.read(location).wrapping_add(1);
+	bus.write(location, result);
 	self.set_zn(result);
     }
 
@@ -944,7 +1198,7 @@ impl Cpu {
     fn rol_acc(&mut self) {
 	let carry = self.flag_c as u8;
 	self.flag_c = (self.reg_a >> 7) & Self::CARRY > 0;
-	self.reg_a = (self.reg_a >> 1) | (carry << 7);
+	self.reg_a = (self.reg_a << 1) | carry;
 	self.set_zn(self.reg_a);
     }
 
@@ -952,7 +1206,7 @@ impl Cpu {
 	let carry = self.flag_c as u8;
 	let m = bus.read(location);
 	self.flag_c = (m >> 7) & Self::CARRY > 0;
-	let m = (m >> 1)| (carry << 7);
+	let m = (m << 1) | carry;
 	bus.write(location, m);
 	self.set_zn(m);
     }
@@ -972,24 +1226,65 @@ impl Cpu {
     }
 
     fn ror_acc(&mut self) {
-	let old_zero_bit = self.reg_a & 1 == 1;
-	self.reg_a >>= 1;
-	self.reg_a = (self.reg_a >> 1) | ((self.flag_c as u8) << 7);
-	self.flag_z = old_zero_bit;
-	self.set_zn(self.reg_a);
+	let c = self.flag_c;
+	self.flag_c = (self.reg_a & 0x1) > 0;
+	self.reg_a = (self.reg_a >> 1) | ((c as u8) << 7);
+	self.flag_z = self.reg_a == 0;
+	self.flag_n = c;
     }
 
     fn ror(&mut self, location: u16, bus: &mut Bus) {
 	let mut m = bus.read(location);
-	let old_zero_bit = m & 1 == 1;
-	m = (m >> 1) | ((self.flag_c as u8) << 7);
-	self.flag_z = old_zero_bit;
-	self.set_zn(m);
+	let c = self.flag_c;
+	self.flag_c = (m & 0x1) > 0;
+	m = (m >> 1) | ((c as u8) << 7);
+	self.flag_z = m == 0;
+	self.flag_n = c;
+	bus.write(location, m);
     }
 
     fn lda(&mut self, location: u16, bus: &mut Bus) {
 	self.reg_a = bus.read(location);
 	self.set_zn(self.reg_a);
+    }
+
+    fn lax(&mut self, location: u16, bus: &mut Bus) {
+	let data = bus.read(location);
+	self.reg_a = data;
+	self.reg_x = data;
+	self.set_zn(data);
+    }
+
+    fn sax(&mut self, location: u16, bus: &mut Bus) {
+	bus.write(location, self.reg_a & self.reg_x);
+    }
+
+    fn dcp(&mut self, location: u16, bus: &mut Bus) {
+	let res = bus.read(location).wrapping_sub(1);
+	let tmp = self.reg_a.wrapping_sub(res);
+	self.set_zn(tmp);
+	self.flag_c = self.reg_a >= res;
+	bus.write(location, res);
+    }
+
+    fn isc(&mut self, location: u16, bus: &mut Bus) {
+	let operand = bus.read(location).wrapping_add(1);
+	bus.write(location, operand);
+
+	let result = (self.reg_a as u16)
+	    .wrapping_add(!operand as u16)
+	    .wrapping_add(self.flag_c as u16);
+
+	self.set_cv(self.reg_a, !operand, result);
+	self.set_zn(result as u8);
+	self.reg_a = result as u8;
+    }
+
+    fn slo(&mut self, location: u16, bus: &mut Bus) {
+	self.asl(location, bus);
+	let res = self.reg_a | bus.read(location);
+	self.set_zn(res);
+	self.reg_a = res;
     }
 
     fn sta(&mut self, location: u16, bus: &mut Bus) {
@@ -1011,6 +1306,30 @@ impl Cpu {
 	self.flag_v = (m >> 6) & 1 > 0;
 	self.flag_z = (m & self.reg_a) == 0;
 	self.set_n(m);
+    }
+
+    fn rla(&mut self, location: u16, bus: &mut Bus) {
+	self.rol(location, bus);
+	let val = bus.read(location);
+	let res = self.reg_a & val;
+	self.set_zn(res);
+	self.reg_a = res;
+    }
+
+    fn sre(&mut self, location: u16, bus: &mut Bus) {
+	self.lsr(location, bus);
+	let val = bus.read(location);
+	self.reg_a = self.reg_a ^ val;
+	self.set_zn(self.reg_a);
+    }
+
+    fn rra(&mut self, location: u16, bus: &mut Bus) {
+	self.ror(location, bus);
+	let val = bus.read(location);
+	let result = self.reg_a as u16 + val as u16 + self.flag_c as u16;
+	self.set_cv(self.reg_a, val, result);
+	self.reg_a = result as u8;
+	self.set_zn(self.reg_a);
     }
 
     /// pushes a value onto the stack
@@ -1041,14 +1360,16 @@ impl Cpu {
 
     /// indexed indirect addressing mode resolution
     fn indexed_indirect(&mut self, bus: &mut Bus) -> u16 {
-	let base = bus.read(post_inc!(self.reg_pc));
-	bus.read_u16(base.wrapping_add(self.reg_x) as u16)
+	let zero_addr = bus.read(post_inc!(self.reg_pc)) as u16 + self.reg_x as u16;
+	bus.read(zero_addr & 0xff) as u16 | ((bus.read((zero_addr + 1) & 0xff)) as u16) << 8
     }
 
     /// indirect indexed addressing mode resolution
     fn indirect_indexed(&mut self, bus: &mut Bus) -> u16 {
-	let addr = bus.read(post_inc!(self.reg_pc));
-	addr as u16 + self.reg_y as u16
+	let addr = bus.read(post_inc!(self.reg_pc)) as u16;
+	let lo = bus.read(addr & 0xff) as u16;
+	let hi = (bus.read((addr + 1) & 0xff) as u16) << 8;
+	(hi | lo) .wrapping_add(self.reg_y as u16)
     }
 
     /// absolute addressing mode resolution
@@ -1067,8 +1388,8 @@ impl Cpu {
 
     /// indexed (by Y) absolute addressing
     fn absolute_y(&mut self, bus: &mut Bus) -> u16 {
-	let result = self.reg_y as u16 + bus.read_u16(self.reg_pc);
-	self.reg_pc += 2;
+	let result = (self.reg_y as u16).wrapping_add(bus.read_u16(self.reg_pc));
+	self.reg_pc = self.reg_pc.wrapping_add(2);
 	result
     }
 
@@ -1096,6 +1417,12 @@ impl Cpu {
 	self.set_n(val);
     }
 
+    fn set_cv(&mut self, a: u8, b: u8, result: u16) {
+	self.flag_c = result > 0xff;
+	let r = result as u8;
+	self.flag_v = ((a ^ r) & (b ^ r) & 0x80) != 0;
+    }
+
     fn set_n(&mut self, val: u8) {
 	self.flag_n = ((val >> 7) & 1) > 0;
     }
@@ -1106,10 +1433,6 @@ mod tests {
     use crate::bus::Bus;
     use std::io::Read;
     use super::*;
-
-    fn typ<T>(_:&T) {
-	println!("{}", std::any::type_name::<T>());
-    }
 
     struct Log {
 	addr: u16,
@@ -1174,6 +1497,7 @@ mod tests {
 	    println!("actual cpu: {}", cpu.state());
 	    let clean: Vec<_> = l.split_whitespace().collect();
 	    println!("log line: {}", clean.join(" "));
+
 	    assert_eq!(state.addr, cpu.reg_pc,
 		       "PC expected {:x}, actual {:x}", state.addr, cpu.reg_pc);
 	    assert_eq!(state.reg_a, cpu.reg_a,
@@ -1185,13 +1509,15 @@ mod tests {
 	    check_status(state.reg_p, &cpu);
 	    assert_eq!(state.reg_sp, cpu.reg_sp,
 		       "reg_sp expected {:x}, actual {:x}", state.reg_sp, cpu.reg_sp);
-	    // TODO: assert that the isntructions match.
-	    // maybe unnecessary since we check register state?
+
 	    end = cpu.step(&mut bus).unwrap();
 	    // tick down cycle stall
 	    while cpu.cycles > 0 {
 		end = cpu.step(&mut bus).unwrap();
+		assert!(!end);
 	    }
 	}
+	// The test does not actually end with a kill instruction,
+	// so no assert!(end) can be checked.
     }
 }

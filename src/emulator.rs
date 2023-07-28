@@ -12,8 +12,6 @@ pub struct Emulator {
     ppu: Ppu,
 }
 
-
-
 impl Emulator {
     pub fn run<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {
 	self.bus.load_rom(rom_path)?;
