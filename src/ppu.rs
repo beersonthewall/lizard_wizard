@@ -21,6 +21,8 @@ pub struct Ppu {
 
     reg_addr: u16,
     reg_addr_write_hi: bool,
+
+    reg_status: u8,
 }
 
 impl std::default::Default for Ppu {
@@ -35,6 +37,8 @@ impl std::default::Default for Ppu {
 
 	    reg_addr: 0,
 	    reg_addr_write_hi: true,
+
+	    reg_status: 0,
 	}
     }
 }
@@ -42,19 +46,6 @@ impl std::default::Default for Ppu {
 impl Ppu {
     pub fn step(&mut self, _mapper: &dyn Mapper) -> Result<(), EmuErr> {
 	Ok(())
-    }
-
-    /// Writes the ppu address register. Alternating between hi and lo byte.
-    /// Address range is [0x0000-0x3fff] and address above that range will
-    /// be mirrored down.
-    fn write_addr(&mut self, byte: u8) {
-	if self.reg_addr_write_hi {
-	    self.reg_addr = (byte as u16) << 8 | (self.reg_addr & 0xff);
-	} else {
-	    self.reg_addr = (self.reg_addr & 0xff00) | byte as u16;
-	}
-	self.reg_addr_write_hi = !self.reg_addr_write_hi;
-	self.reg_addr %= 0x3fff;
     }
 
     /// Read one of the memory-mapped ppu registers.
@@ -75,7 +66,7 @@ impl Ppu {
 	match addr % 0x3fff {
 	    0x2000 => self.latch,
 	    0x2001 => self.latch,
-	    0x2002 => todo!("read ppu status"),
+	    0x2002 => self.read_status(),
 	    0x2003 => self.latch,
 	    0x2004 => todo!("read oam data"),
 	    0x2005 => self.latch,
@@ -86,11 +77,37 @@ impl Ppu {
 	}
     }
 
+    /// Write to the PPU.
     pub fn write(&mut self, addr: u16, data: u8) {
 	let addr = addr % 0x3fff;
 	match addr {
 	    0x2006 => self.write_addr(data),
 	    _ => panic!("PPU write invalid address 0x{:x}", addr),
 	}
+    }
+    
+    /// Writes the ppu address register. Alternating between hi and lo byte.
+    /// Address range is [0x0000-0x3fff] and address above that range will
+    /// be mirrored down.
+    fn write_addr(&mut self, byte: u8) {
+	if self.reg_addr_write_hi {
+	    self.reg_addr = (byte as u16) << 8 | (self.reg_addr & 0xff);
+	} else {
+	    self.reg_addr = (self.reg_addr & 0xff00) | byte as u16;
+	}
+	self.reg_addr_write_hi = !self.reg_addr_write_hi;
+	self.reg_addr %= 0x3fff;
+    }
+
+    /// Reads the PPU status register. Reading this register fills the ppu latch
+    /// with the data read. Additional effects: bit 7 in the status register
+    /// (vertical blank) is cleared after reading, and the address write 
+    /// hi/lo latch is reset.
+    fn read_status(&mut self) -> u8 {
+	self.latch = self.reg_status;
+	let status = self.reg_status;
+	self.reg_status &= !(1 << 7);
+	self.reg_addr_write_hi = true;
+	status
     }
 }
