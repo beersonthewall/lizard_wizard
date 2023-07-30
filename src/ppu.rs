@@ -11,9 +11,9 @@ use super::mapper::Mapper;
 /// of Object Attribute Memory (OAM), and 32 bytes for pallete tables. The chr rom
 /// mapped onto the cartridge chr rom.
 pub struct Ppu {
-    _palletes: [u8;32],
+    palletes: [u8;32],
     // name tables
-    _vram: [u8; 2048],
+    vram: [u8; 2048],
     oam: [u8;256],
     _interal_buf: u8,
 
@@ -25,13 +25,15 @@ pub struct Ppu {
     reg_status: u8,
 
     reg_oam_addr: u8,
+
+    reg_ctrl: u8,
 }
 
 impl std::default::Default for Ppu {
     fn default() -> Self {
 	Ppu {
-	    _palletes: [0;32],
-	    _vram: [0; 2048],
+	    palletes: [0;32],
+	    vram: [0; 2048],
 	    oam: [0;256],
 	    _interal_buf: 0,
 
@@ -43,6 +45,8 @@ impl std::default::Default for Ppu {
 	    reg_status: 0,
 
 	    reg_oam_addr: 0,
+
+	    reg_ctrl: 0,
 	}
     }
 }
@@ -66,7 +70,7 @@ impl Ppu {
     /// NOTE: The control, mask, oam addr, scroll, ppu address, and oam dma
     /// are write only. However reading these will return the value of
     /// the ppu's internal data buffer (self.latch).
-    pub fn read_reg(&mut self, addr: u16) -> u8 {
+    pub fn read_reg(&mut self, addr: u16, mapper: &dyn Mapper) -> u8 {
 	match addr % 0x3fff {
 	    0x2000 => self.latch,
 	    0x2001 => self.latch,
@@ -75,7 +79,7 @@ impl Ppu {
 	    0x2004 => self.read_oam_data(),
 	    0x2005 => self.latch,
 	    0x2006 => self.latch,
-	    0x2007 => todo!("read ppu data"),
+	    0x2007 => self.read_ppu_data(mapper),
 	    0x4014 => self.latch,
 	    _ => panic!("PPU register address out of bounds: 0x{:x}", addr),
 	}
@@ -120,5 +124,54 @@ impl Ppu {
 	let value = self.oam[self.reg_oam_addr as usize];
 	self.latch = value;
 	value
+    }
+
+    /// Read PPU memory.
+    ///
+    /// Memory Map:
+    /// [0x0000,0x0fff] - pattern table 0
+    /// [0x1000,0x1fff] - pattern table 1
+    /// [0x2000,0x23ff] - name table 0
+    /// [0x2400,0x27ff] - name table 1
+    /// [0x2800,0x2bff] - name table 2
+    /// [0x2c00,0x2fff] - name table 3
+    /// [0x3000,0x3eff] - mirrors of [0x2000,0x2efff]
+    /// [0x3f00,0x3f1f] - pallete ram indexes
+    /// [0x3f20,0x3fff] - mirrors of [0x3f00,0x3f1f]
+    fn read_ppu_data(&mut self, mapper: &dyn Mapper) -> u8 {
+	let addr = self.reg_addr;
+	self.inc_vram_addr();
+
+	match addr {
+	    0x0000..=0x1fff => {
+		let l = self.latch;
+		self.latch = mapper.read_chr(addr);
+		l
+	    },
+
+	    0x2000..=0x2fff => {
+		let l = self.latch;
+		self.latch = self.vram[addr as usize];
+		l
+	    },
+
+	    0x3000..=0x3eff => unimplemented!("reading [0x3000,0x3eff] is unimplemented."),
+
+	    0x3f00..=0x3fff => {
+		self.palletes[(addr - 0x3f00) as usize]
+	    },
+
+	    _ => panic!("invalid ppu address {:x}", addr),
+	}
+    }
+
+    /// Increments reg_addr by 32 or 1 if bit 2 in reg_ctrl is set
+    /// or unset respectively.
+    fn inc_vram_addr(&mut self) {
+	if (1 << 2) & self.reg_ctrl > 0 {
+	    self.reg_addr = self.reg_addr.wrapping_add(32);	    
+	} else {
+	    self.reg_addr = self.reg_addr.wrapping_add(1);
+	}
     }
 }

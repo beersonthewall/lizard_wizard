@@ -64,26 +64,22 @@ impl Bus {
     /// [0x4018,0x401f] - apu & I/O functionality which is normally disabled
     /// [0x4020,0xffff] - catridge space: prg rom, prg ram, and mapper regsiters
     pub fn read(&mut self, addr: u16) -> u8 {
-	match addr {
-	    // addr & 0x07ff (2kib) to implement mirroring
-	    // effectively addr % 2KiB
-	    Self::MEMORY_START..=Self::MEMORY_END => self.ram[(addr & 0x7ff) as usize],
-	    // PPU memory-mapped registers are [0x2000,0x2007] and mirrored every 8 bytes
-	    // [0x2008,0x3fff]
-	    Self::PPU_START..=Self::PPU_END => self.ppu.read_reg(addr),
-	    // TODO OAM DMA and APU range intersect. How to handle this better?
-	    Self::OAM_DMA => self.ppu.read_reg(addr),
-	    Self::APU_START..=Self::APU_END => todo!("apu mem"),
-	    Self::EXPANSION_START..=Self::EXPANSION_END => todo!("cartridge expansion rom"),
-	    Self::PRG_ROM_START..=Self::PRG_ROM_END => {
-		if let Some(m) = &self.mapper {
-		    m.read_prg_rom(addr)
-		} else {
-		    panic!("No mapper");
-		}
-	    },
-	    _ => 0,
-	}
+	if let Some(m) = &self.mapper {
+	    match addr {
+		// addr & 0x07ff (2kib) to implement mirroring
+		// effectively addr % 2KiB
+		Self::MEMORY_START..=Self::MEMORY_END => self.ram[(addr & 0x7ff) as usize],
+		// PPU memory-mapped registers are [0x2000,0x2007] and mirrored every 8 bytes
+		// [0x2008,0x3fff]
+		Self::PPU_START..=Self::PPU_END => self.ppu.read_reg(addr, m.as_ref()),
+		// TODO OAM DMA and APU range intersect. How to handle this better?
+		Self::OAM_DMA => self.ppu.read_reg(addr, m.as_ref()),
+		Self::APU_START..=Self::APU_END => todo!("apu mem"),
+		Self::EXPANSION_START..=Self::EXPANSION_END => todo!("cartridge expansion rom"),
+		Self::PRG_ROM_START..=Self::PRG_ROM_END => m.read_prg_rom(addr),
+		_ => panic!("bus read address out of range {:x}", addr),
+	    }
+	} else { panic!("no mapper for read"); }
     }
 
     pub fn read_u16(&mut self, addr: u16) -> u16 {
