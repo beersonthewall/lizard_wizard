@@ -14,7 +14,7 @@ pub struct Ppu {
     _palletes: [u8;32],
     // name tables
     _vram: [u8; 2048],
-    _oam: [u8;256],
+    oam: [u8;256],
     _interal_buf: u8,
 
     latch: u8,
@@ -23,6 +23,8 @@ pub struct Ppu {
     reg_addr_write_hi: bool,
 
     reg_status: u8,
+
+    reg_oam_addr: u8,
 }
 
 impl std::default::Default for Ppu {
@@ -30,7 +32,7 @@ impl std::default::Default for Ppu {
 	Ppu {
 	    _palletes: [0;32],
 	    _vram: [0; 2048],
-	    _oam: [0;256],
+	    oam: [0;256],
 	    _interal_buf: 0,
 
 	    latch: 0,
@@ -39,6 +41,8 @@ impl std::default::Default for Ppu {
 	    reg_addr_write_hi: true,
 
 	    reg_status: 0,
+
+	    reg_oam_addr: 0,
 	}
     }
 }
@@ -68,7 +72,7 @@ impl Ppu {
 	    0x2001 => self.latch,
 	    0x2002 => self.read_status(),
 	    0x2003 => self.latch,
-	    0x2004 => todo!("read oam data"),
+	    0x2004 => self.read_oam_data(),
 	    0x2005 => self.latch,
 	    0x2006 => self.latch,
 	    0x2007 => todo!("read ppu data"),
@@ -109,5 +113,12 @@ impl Ppu {
 	self.reg_status &= !(1 << 7);
 	self.reg_addr_write_hi = true;
 	status
+    }
+
+    /// Returns the byte of OAM data at location indicated by reg_oam_addr.
+    fn read_oam_data(&mut self) -> u8 {
+	let value = self.oam[self.reg_oam_addr as usize];
+	self.latch = value;
+	value
     }
 }
