@@ -75,6 +75,7 @@ impl Ppu {
 	match addr % 0x3fff {
 	    0x2000 => self.latch,
 	    0x2001 => self.latch,
+	    0x2002 => todo!("read ppu status"),
 	    0x2003 => self.latch,
 	    0x2004 => todo!("read oam data"),
 	    0x2005 => self.latch,
