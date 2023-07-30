@@ -15,18 +15,15 @@ pub struct Ppu {
     // name tables
     vram: [u8; 2048],
     oam: [u8;256],
-    _interal_buf: u8,
-
     latch: u8,
-
     reg_addr: u16,
     reg_addr_write_hi: bool,
-
     reg_status: u8,
-
     reg_oam_addr: u8,
-
     reg_ctrl: u8,
+    reg_mask: u8,
+    reg_scroll: (u8, u8),
+    reg_scroll_x: bool,
 }
 
 impl std::default::Default for Ppu {
@@ -35,18 +32,15 @@ impl std::default::Default for Ppu {
 	    palletes: [0;32],
 	    vram: [0; 2048],
 	    oam: [0;256],
-	    _interal_buf: 0,
-
 	    latch: 0,
-
 	    reg_addr: 0,
 	    reg_addr_write_hi: true,
-
 	    reg_status: 0,
-
 	    reg_oam_addr: 0,
-
 	    reg_ctrl: 0,
+	    reg_mask: 0,
+	    reg_scroll: (0, 0),
+	    reg_scroll_x: true,
 	}
     }
 }
@@ -89,7 +83,18 @@ impl Ppu {
     pub fn write(&mut self, addr: u16, data: u8) {
 	let addr = addr % 0x3fff;
 	match addr {
+	    0x2000 => { self.reg_ctrl = data; },
+	    0x2001 => { self.reg_mask = data; },
+	    0x2002 => panic!("write read-only ppu status register"),
+	    0x2003 => { self.reg_oam_addr = data; },
+	    0x2004 => {
+		self.oam[self.reg_oam_addr as usize] = data;
+		self.reg_oam_addr = self.reg_oam_addr.wrapping_add(1);
+	    },
+	    0x2005 => self.write_scroll(data),
 	    0x2006 => self.write_addr(data),
+	    0x2007 => self.write_data(data),
+	    // TODO 0x4014 handle OAM DMA
 	    _ => panic!("PPU write invalid address 0x{:x}", addr),
 	}
     }
@@ -173,5 +178,47 @@ impl Ppu {
 	} else {
 	    self.reg_addr = self.reg_addr.wrapping_add(1);
 	}
+    }
+
+    // Writes reg_scroll, alternating x/y coords.
+    fn write_scroll(&mut self, data: u8) {
+	if self.reg_scroll_x {
+	    self.reg_scroll.0 = data;
+	} else {
+	    self.reg_scroll.1 = data;
+	}
+	self.reg_scroll_x = !self.reg_scroll_x;
+    }
+
+    /// Writes ppu data register.
+    ///
+    /// Memory Map:
+    /// [0x0000,0x0fff] - pattern table 0
+    /// [0x1000,0x1fff] - pattern table 1
+    /// [0x2000,0x23ff] - name table 0
+    /// [0x2400,0x27ff] - name table 1
+    /// [0x2800,0x2bff] - name table 2
+    /// [0x2c00,0x2fff] - name table 3
+    /// [0x3000,0x3eff] - mirrors of [0x2000,0x2efff]
+    /// [0x3f00,0x3f1f] - pallete ram indexes
+    /// [0x3f20,0x3fff] - mirrors of [0x3f00,0x3f1f]
+    fn write_data(&mut self, data: u8) {
+	match self.reg_addr {
+	    0x0000..=0x0fff => panic!("write to chr rom"),
+	    0x2000..=0x2fff => {
+		self.vram[self.reg_addr as usize] = data;
+	    },
+	    0x3000..=0x3eff => unimplemented!("write [0x3000,0x3fff]"),
+	    0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
+		let addr = self.reg_addr - 0x10;
+		self.palletes[(addr - 0x3f00) as usize] = data;
+	    },
+	    0x3f00..=0x3fff => {
+		self.palletes[(self.reg_addr - 0x3f00) as usize] = data;
+	    },
+	    _ => panic!("ppu data register write oob {:x}", self.reg_addr),
+	}
+
+	self.inc_vram_addr();
     }
 }
