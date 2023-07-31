@@ -96,4 +96,20 @@ impl Cartridge {
     pub fn uses_chr_ram(&self) -> bool {
 	self.header[5] == 0
     }
+
+    pub fn mirroring(&self) -> Mirroring {
+	if self.header[6] & (1 << 3) > 0 {
+	    Mirroring::FourScreen
+	} else if self.header[6] & 1 > 0 {
+	    Mirroring::Vertical
+	} else {
+	    Mirroring::Horizontal
+	}
+    }
+}
+
+pub enum Mirroring {
+    Horizontal,
+    Vertical,
+    FourScreen,
 }

@@ -35,6 +35,7 @@ impl Bus {
     /// parsed header information.
     pub fn load_rom<P: AsRef<Path>>(&mut self, rom_path: P) -> Result<(), EmuErr> {
 	let cartridge = Cartridge::load_rom(rom_path)?;
+	self.ppu.set_mirror(cartridge.mirroring());
 	let mapper = build_mapper(cartridge);
 	self.mapper = Some(mapper);
 	Ok(())

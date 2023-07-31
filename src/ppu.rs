@@ -1,3 +1,4 @@
+use super::cartridge::Mirroring;
 use super::err::EmuErr;
 use super::mapper::Mapper;
 
@@ -24,6 +25,7 @@ pub struct Ppu {
     reg_mask: u8,
     reg_scroll: (u8, u8),
     reg_scroll_x: bool,
+    mirror: Mirroring,
 }
 
 impl std::default::Default for Ppu {
@@ -41,6 +43,7 @@ impl std::default::Default for Ppu {
 	    reg_mask: 0,
 	    reg_scroll: (0, 0),
 	    reg_scroll_x: true,
+	    mirror: Mirroring::Horizontal,
 	}
     }
 }
@@ -48,6 +51,11 @@ impl std::default::Default for Ppu {
 impl Ppu {
     pub fn step(&mut self, _mapper: &dyn Mapper) -> Result<(), EmuErr> {
 	Ok(())
+    }
+
+    /// Set mirroring options.
+    pub fn set_mirror(&mut self, mirror: Mirroring) {
+	self.mirror = mirror;
     }
 
     /// Read one of the memory-mapped ppu registers.
@@ -156,7 +164,7 @@ impl Ppu {
 
 	    0x2000..=0x2fff => {
 		let l = self.latch;
-		self.latch = self.vram[addr as usize];
+		self.latch = self.vram[self.mirror_vram_addr(addr)];
 		l
 	    },
 
@@ -206,7 +214,7 @@ impl Ppu {
 	match self.reg_addr {
 	    0x0000..=0x0fff => panic!("write to chr rom"),
 	    0x2000..=0x2fff => {
-		self.vram[self.reg_addr as usize] = data;
+		self.vram[self.mirror_vram_addr(self.reg_addr)] = data;
 	    },
 	    0x3000..=0x3eff => unimplemented!("write [0x3000,0x3fff]"),
 	    0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
@@ -220,5 +228,20 @@ impl Ppu {
 	}
 
 	self.inc_vram_addr();
+    }
+
+    fn mirror_vram_addr(&self, addr: u16) -> usize {
+	let addr = addr & 0b10111111111111;
+	// 4 logical name tables of 1024 bytes
+	let name_table = addr / 1024;
+	let vram_index = addr - 0x2000;
+	match (&self.mirror, name_table) {
+	    (Mirroring::Horizontal, 1) |
+	    (Mirroring::Horizontal, 2) => (vram_index - 1024) as usize,
+	    (Mirroring::Horizontal, 3) |
+	    (Mirroring::Vertical, 2) |
+	    (Mirroring::Vertical, 3)=> (vram_index - (2 * 1024)) as usize,
+	    _ => vram_index as usize,
+	}
     }
 }
