@@ -94,9 +94,9 @@ impl Bus {
 		Self::MEMORY_START..=Self::MEMORY_END => self.ram[(addr & 0x7ff) as usize],
 		// PPU memory-mapped registers are [0x2000,0x2007] and mirrored every 8 bytes
 		// [0x2008,0x3fff]
-		Self::PPU_START..=Self::PPU_END => todo!(),
+		Self::PPU_START..=Self::PPU_END => self.ppu.read(addr),
 		// TODO OAM DMA and APU range intersect. How to handle this better?
-		Self::OAM_DMA => todo!(),
+		Self::OAM_DMA => todo!("oam direct memory access."),
 		Self::CONTROLLER1 => self.controller.read(),
 		Self::APU_START..=Self::APU_END => todo!("apu mem"),
 		Self::EXPANSION_START..=Self::EXPANSION_END => todo!("cartridge expansion rom"),
@@ -126,7 +126,7 @@ impl Bus {
 	    // addr & 0x07ff (2kib) to implement mirroring
 	    // effectively addr % 2KiB
 	    Self::MEMORY_START..=Self::MEMORY_END => self.ram[(addr & 0x7ff) as usize] = data,
-	    Self::PPU_START..=Self::PPU_END => todo!(),
+	    Self::PPU_START..=Self::PPU_END => self.ppu.write(addr, data),
 	    Self::CONTROLLER1 => self.controller.write(data),
 	    Self::PRG_ROM_START..=Self::PRG_ROM_END => panic!("prg rom write attempt"),
 	    _ => (),

@@ -78,7 +78,12 @@ impl Ppu {
 
     pub fn step(&mut self, _mapper: &dyn Mapper) -> Result<(), EmuErr> { Ok(()) }
 
-    pub fn write(&mut self, addr: u16, data: u8) {}
+    pub fn write(&mut self, addr: u16, data: u8) {
+	match addr {
+	    0x2000 => self.ctrl.write(data),
+	    _ => (),
+	}
+    }
 
     pub fn read(&mut self, addr: u16) -> u8 { 0 }
 
@@ -114,6 +119,21 @@ impl CtrlReg {
 	    select: false,	    
 	    nmi: false,
 	}
+    }
+
+    fn write(&mut self, data: u8) {
+	self.base_nt_addr = match data & 0b11 {
+	    0 => NTAddr::NT2000,
+	    1 => NTAddr::NT2400,
+	    2 => NTAddr::NT2800,
+	    _ => NTAddr::NT2c00,
+	};
+	self.vram_address_inc = (data >> 2) & 1 > 0;
+	self.sprite_pattern_table_addr = (data >> 3) & 1 > 0;
+	self.bg_pattern_table_addr = (data >> 4) & 1 > 0;
+	self.sprite_sz = (data >> 5) & 1 > 0;
+	self.select = (data >> 6) & 1 > 0;
+	self.nmi = (data >> 7) & 1 > 0;
     }
 }
 
