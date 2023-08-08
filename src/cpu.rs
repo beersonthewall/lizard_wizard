@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use super::err::EmuErr;
 use super::bus::Bus;
 use super::opcodes::{OPCODES,I,AM,Op};
@@ -22,31 +24,7 @@ pub struct Cpu {
     cycles: usize,
     interrupt: Option<Interrupt>,
     instruction: Option<I>, // for debugging
-}
-
-impl std::default::Default for Cpu {
-
-    fn default() -> Self {
-	Self {
-	    reg_pc: Self::RESET_VECTOR,
-	    reg_a: 0,
-	    reg_x: 0,
-	    reg_y: 0,
-	    reg_p: 0x00,
-
-	    flag_c: false,
-	    flag_z: false,
-	    flag_i: false,
-	    flag_d: false,
-	    flag_v: false,
-	    flag_n: false,
-	    
-	    reg_sp: Self::INITIAL_SP,
-	    cycles: 0,
-	    interrupt: None,
-	    instruction: None,
-	}
-    }
+    nmi_signal: Rc<RefCell<bool>>,
 }
 
 /// Macro rule to implement post-increment for a mutable expression.
@@ -73,6 +51,29 @@ impl Cpu {
     const RESET_VECTOR: u16 = 0xFFFC;
     const INITIAL_SP: u8 = 0xFD;
 
+    pub fn new(nmi_signal: Rc<RefCell<bool>>) -> Self {
+	Self {
+	    reg_pc: Self::RESET_VECTOR,
+	    reg_a: 0,
+	    reg_x: 0,
+	    reg_y: 0,
+	    reg_p: 0x00,
+
+	    flag_c: false,
+	    flag_z: false,
+	    flag_i: false,
+	    flag_d: false,
+	    flag_v: false,
+	    flag_n: false,
+	    
+	    reg_sp: Self::INITIAL_SP,
+	    cycles: 0,
+	    interrupt: None,
+	    instruction: None,
+	    nmi_signal,
+	}
+    }
+
     /// Sets power up state
     pub fn power_on(&mut self) {
 	self.reg_a = 0;
@@ -94,7 +95,7 @@ impl Cpu {
 	// For testrom.nes automated mode (e.g. no graphics implemented yet)
 	// This was quite annoying when I kept seeing 0xc004 read from the reset vector
 	// but other places saying the test should start at 0xc000 :(.
-	self.reg_pc = 0xc000;
+	//self.reg_pc = 0xc000;
 
 	self.reg_sp = Self::INITIAL_SP;
 	self.reg_a = 0;
@@ -172,8 +173,13 @@ impl Cpu {
 
     pub fn step(&mut self, bus: &mut Bus) -> Result<bool, EmuErr> {
 	if self.cycles == 0 {
+	    // TODO: interrupt signals could be cleaner / not duplicated?
 	    if let Some(kind) = self.interrupt {
 		self.execute_interrupt(kind, bus);
+	    }
+
+	    if *self.nmi_signal.borrow() {
+		self.execute_interrupt(Interrupt::Nmi, bus);
 	    }
 
 	    let opcode: u8 = bus.read(post_inc!(self.reg_pc));
@@ -1479,9 +1485,9 @@ mod tests {
     fn test_rom() {
 	let test_rom = "testrom.nes";
 	let test_log = "nestest.log";
-
-	let mut bus = Bus::default();
-	let mut cpu = Cpu::default();
+	let nmi_signal: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+	let mut bus = Bus::new(nmi_signal.clone());
+	let mut cpu = Cpu::new(nmi_signal);
 
 	cpu.power_on();
 	bus.load_rom(test_rom).unwrap();

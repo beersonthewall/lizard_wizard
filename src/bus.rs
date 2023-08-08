@@ -1,5 +1,8 @@
+use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 use super::cartridge::Cartridge;
+use super::controller::Controller;
 use super::err::EmuErr;
 use super::mapper::{Mapper, build_mapper};
 use super::ppu::Ppu;
@@ -8,26 +11,42 @@ pub struct Bus {
     ram: Vec<u8>,
     mapper: Option<Box<dyn Mapper>>,
     ppu: Ppu,
-}
-
-impl std::default::Default for Bus {
-    fn default() -> Self {
-	Self {
-	    // allocate 65K addressable ram
-	    ram: [0;u16::MAX as usize].to_vec(),
-	    mapper: None,
-	    ppu: Ppu::default(),
-	}
-    }
+    controller: Controller,
 }
 
 impl Bus {
 
+    pub fn new(nmi_signal: Rc<RefCell<bool>>) -> Self {
+	Self {
+	    ram: [0;u16::MAX as usize].to_vec(),
+	    mapper: None,
+	    ppu: Ppu::new(nmi_signal),
+	    controller: Controller::new(),
+	}
+    }
+
+    pub fn draw(&self, buf: &mut [u8]) {
+	if let Some(m) = &self.mapper {
+//	    self.ppu.draw(buf, m.as_ref());
+	}
+    }
+
     /// Ticks ppu once
     pub fn step(&mut self) -> Result<(), EmuErr> {
 	if let Some(m) = &self.mapper {
-	    return self.ppu.step(m.as_ref());
+	    let _before_nmi = *self.ppu.nmi_signal.borrow();
+	    // The ppu is ticked at a 3-1 ratio with cpu cycles
+	    self.ppu.step(m.as_ref())?;
+	    self.ppu.step(m.as_ref())?;
+	    self.ppu.step(m.as_ref())?;
+	    let _after_nmi = *self.ppu.nmi_signal.borrow();
+
+//	    if !before_nmi && after_nmi {
+//		(self.update_game)(&self.ppu, &mut self.controller);
+//	    }
 	}
+
+	
 	Ok(())
     }
 
@@ -48,8 +67,11 @@ impl Bus {
     const PPU_END: u16 = 0x3fff;
     const OAM_DMA: u16 = 0x4014;
 
+    const CONTROLLER1: u16 = 0x4016;
     const APU_START: u16 = 0x4000;
     const APU_END: u16 = 0x4017;
+
+
     const EXPANSION_START: u16 = 0x4020;
     const EXPANSION_END: u16 = 0x5fff;
     const PRG_ROM_START: u16 = 0x8000;
@@ -72,9 +94,10 @@ impl Bus {
 		Self::MEMORY_START..=Self::MEMORY_END => self.ram[(addr & 0x7ff) as usize],
 		// PPU memory-mapped registers are [0x2000,0x2007] and mirrored every 8 bytes
 		// [0x2008,0x3fff]
-		Self::PPU_START..=Self::PPU_END => self.ppu.read_reg(addr, m.as_ref()),
+		Self::PPU_START..=Self::PPU_END => todo!(),
 		// TODO OAM DMA and APU range intersect. How to handle this better?
-		Self::OAM_DMA => self.ppu.read_reg(addr, m.as_ref()),
+		Self::OAM_DMA => todo!(),
+		Self::CONTROLLER1 => self.controller.read(),
 		Self::APU_START..=Self::APU_END => todo!("apu mem"),
 		Self::EXPANSION_START..=Self::EXPANSION_END => todo!("cartridge expansion rom"),
 		Self::PRG_ROM_START..=Self::PRG_ROM_END => m.read_prg_rom(addr),
@@ -103,7 +126,8 @@ impl Bus {
 	    // addr & 0x07ff (2kib) to implement mirroring
 	    // effectively addr % 2KiB
 	    Self::MEMORY_START..=Self::MEMORY_END => self.ram[(addr & 0x7ff) as usize] = data,
-	    Self::PPU_START..=Self::PPU_END => self.ppu.write(addr, data),
+	    Self::PPU_START..=Self::PPU_END => todo!(),
+	    Self::CONTROLLER1 => self.controller.write(data),
 	    Self::PRG_ROM_START..=Self::PRG_ROM_END => panic!("prg rom write attempt"),
 	    _ => (),
 	}
