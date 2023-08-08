@@ -20,6 +20,7 @@ pub struct Ppu {
     status: StatusReg,
     mask: MaskReg,
     mirror: Mirroring,
+    buffer: u8,
 
     // background state
     name_tables: [u8;2*1024],
@@ -54,6 +55,7 @@ impl Ppu {
 	    status: StatusReg::new(),
 	    mask: MaskReg::new(),
 	    mirror: Mirroring::Horizontal,
+	    buffer: 0,
 
 	    name_tables: [0;2*1024],
 	    bg_shift_h: 0,
