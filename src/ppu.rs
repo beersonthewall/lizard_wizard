@@ -21,6 +21,7 @@ pub struct Ppu {
     mask: MaskReg,
     mirror: Mirroring,
     buffer: u8,
+    address_latch: bool,
 
     // background state
     name_tables: [u8;2*1024],
@@ -56,6 +57,7 @@ impl Ppu {
 	    mask: MaskReg::new(),
 	    mirror: Mirroring::Horizontal,
 	    buffer: 0,
+	    address_latch: false,
 
 	    name_tables: [0;2*1024],
 	    bg_shift_h: 0,
@@ -88,7 +90,18 @@ impl Ppu {
 	}
     }
 
-    pub fn read(&mut self, addr: u16) -> u8 { 0 }
+    pub fn read(&mut self, addr: u16) -> u8 {
+	match addr {
+	    0x2002 => {
+		let res = self.status.read() | (self.buffer & 0b11_111);
+		// reading status needs to clear the address latch used by
+		// PPUSCROLL & PPUADDR.
+		self.address_latch = false;
+		res
+	    },
+	    _ => self.buffer,
+	}
+    }
 
     pub fn set_mirror(&mut self, m: Mirroring) { self.mirror = m; }
 
@@ -153,6 +166,17 @@ impl StatusReg {
 	    sprite_zero_hit: false,
 	    vblank: false,
 	}
+    }
+
+    fn read(&mut self)  -> u8 {
+	let res = (self.vblank as u8) << 7 |
+	(self.sprite_zero_hit as u8) << 6 |
+	(self.overflow as u8) << 5;
+
+	// reading status reg clears vblank
+	self.vblank = false;
+
+	res
     }
 }
 
