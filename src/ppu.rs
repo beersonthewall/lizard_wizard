@@ -83,6 +83,7 @@ impl Ppu {
     pub fn write(&mut self, addr: u16, data: u8) {
 	match addr {
 	    0x2000 => self.ctrl.write(data),
+	    0x2001 => self.mask.write(data),
 	    _ => (),
 	}
     }
@@ -178,5 +179,16 @@ impl MaskReg {
 	    em_green: false,
 	    em_blue: false,
 	}
+    }
+
+    fn write(&mut self, data: u8) {
+	self.grayscale = data & 1 > 0;
+	self.show_bg_left = (data >> 1) & 1 > 0;
+	self.show_sp_left = (data >> 2) & 1 > 0;
+	self.show_bg = (data >> 3) & 1 > 0;
+	self.show_sp = (data >> 4) & 1 > 0;
+	self.em_red = (data >> 5) & 1 > 0;
+	self.em_green = (data >> 6) & 1 > 0;
+	self.em_blue = (data >> 7) & 1 > 0;
     }
 }
