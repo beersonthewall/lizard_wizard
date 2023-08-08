@@ -93,7 +93,8 @@ impl Ppu {
     pub fn read(&mut self, addr: u16) -> u8 {
 	match addr {
 	    0x2002 => {
-		let res = self.status.read() | (self.buffer & 0b11_111);
+		let res = self.buffer;
+		self.buffer = self.status.read() | (self.buffer & 0b11_111);
 		// reading status needs to clear the address latch used by
 		// PPUSCROLL & PPUADDR.
 		self.address_latch = false;
